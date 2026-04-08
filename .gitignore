@@ -21,7 +21,6 @@ ENV/
 
 # Local secrets
 .env
-.env.*
 
 # Testing / coverage
 .pytest_cache/
