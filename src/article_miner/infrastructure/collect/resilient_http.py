@@ -10,8 +10,8 @@ from typing import Any
 import httpx
 
 from article_miner.domain.errors import NcbiRateLimitError, NcbiTransportError
-from article_miner.infrastructure.ncbi.config import NcbiClientConfig
-from article_miner.infrastructure.ncbi.rate_limiter import RateLimiter
+from article_miner.infrastructure.collect.config import NcbiClientConfig
+from article_miner.infrastructure.collect.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +164,4 @@ class ResilientHttpClient:
             self._config.base_backoff_seconds,
         )
         time.sleep(delay)
+

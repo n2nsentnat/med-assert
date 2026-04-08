@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from article_miner.domain.article import Article, CollectionOutput
-from article_miner.dedup.engine import (
+from article_miner.domain.collect.models import Article, CollectionOutput
+from article_miner.application.dedup.service import (
     ABSTRACT_TOKEN_SORT_MIN,
     build_duplicate_report,
     normalize_doi,

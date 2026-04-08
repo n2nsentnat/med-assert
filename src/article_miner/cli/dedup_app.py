@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
-from article_miner.dedup.engine import (
+from article_miner.application.dedup.service import (
     build_duplicate_report,
     format_dedup_markdown,
     load_collection,

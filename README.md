@@ -67,6 +67,27 @@ The file is a single object:
 
 All article objects are validated with **Pydantic** before serialization.
 
+## LLM medical insight classification (evidence-grounded)
+
+After you have a `CollectionOutput` JSON from `collect-pubmed`, you can run **Pass 1** (one article per LiteLLM request, JSON-only), **Pass 2** (deterministic Pydantic + substring grounding + heuristic contradiction flags), and **Pass 3** (optional audit call only when triggers fire: low confidence, mixed findings, clinically “meaningful”, failed grounding, or semantic flags).
+
+- **Evidence**: the model must return verbatim **evidence spans** from the title/abstract; the system checks that each span occurs in a canonical concatenation of title + abstract.
+- **Trust**: `PerArticleStatus` is `success` only when schema, grounding, auto-accept heuristics, and (if run) audit all agree; otherwise rows are `needs_human_review` (or `invalid_output` / `api_failure` / `skipped_prefilter`).
+- **Providers**: set one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` (LiteLLM). Choose a model with `--model` (e.g. `gpt-4o-mini`, `anthropic/claude-3-5-sonnet-20241022`, `gemini/gemini-1.5-flash`).
+- **Caching**: optional `--cache /path/to/cache.sqlite` keys on PMID + input hash + prompt version + model.
+
+```bash
+uv run classify-insights results.json -o insights.json --model gpt-4o-mini
+# JSONL per-article lines + .summary.json sidecar:
+uv run classify-insights results.json -o insights.jsonl
+```
+
+**Prompt version** is `PROMPT_VERSION` in `article_miner.infrastructure.insights.prompts` (bump when instructions change to invalidate caches).
+
+**Offline evaluation**: see [`scripts/eval_insight_metrics.py`](scripts/eval_insight_metrics.py) (optional `pandas` / `scikit-learn` for metrics). For rigorous work, build a gold set (75–150 articles) and report accuracy / macro-F1 / **precision on auto-accept** rows.
+
+**Runtime metrics** (from `InsightJobResult.stats` in the JSON / `.summary.json` sidecar): `input_tokens` / `output_tokens` (when the provider returns usage), counts for `success_trusted`, `needs_review`, `invalid_output`, `api_failure`, `skipped_prefilter`, and `truncation_warning` (when canonical title+abstract exceeds the configured length). Derive schema pass rate, grounding pass rate, and human-review rate from per-article rows.
+
 ## Finding probable duplicates
 
 PubMed often lists the **same work** under more than one PMID (preprint vs journal, meeting abstract vs paper, etc.). After collecting JSON, you can scan for **probable** duplicate groups (for human review, not automatic deletion):
@@ -78,16 +99,9 @@ uv run find-pubmed-dupes results.json -o dupes.json -m dupes.md
 - **`-o` / `--out-json`**: machine-readable report (`methodology` field documents rules and thresholds).
 - **`-m` / `--markdown`**: short Markdown with cluster tables and optional retraction hints.
 
-Definitions, similarity metrics, scalability notes, and edge-case handling are documented in the report’s `methodology` string and in the module docstring of `article_miner.dedup.engine`.
+Definitions, similarity metrics, scalability notes, and edge-case handling are documented in the report’s `methodology` string and in the module docstring of `article_miner.application.dedup.service`.
 
 ### One-shot workflow (collect + dedup)
-
-**Shell** (invokes the `uv` CLIs; requires `uv` on your `PATH`):
-
-```bash
-chmod +x scripts/pubmed_workflow.sh   # once
-./scripts/pubmed_workflow.sh -n 25 "diabetes mellitus[tiab]"
-```
 
 **Python** (same behavior, in-process—no subprocess; uses the same services as `collect-pubmed` + dedup):
 
@@ -117,6 +131,13 @@ Layers follow **Clean / Onion** style dependency direction (inward-only):
 | **CLI** | Typer composition root: wires config → HTTP → gateway → use case |
 
 **SOLID**: single-purpose modules, gateway depends on `HttpTextClient` protocol for testing, use case depends on `PubMedGateway` protocol — not on `httpx` or URLs.
+
+### Tool-specific module layout
+
+- `article_miner/infrastructure/collect/`: PubMed collection adapters (HTTP client, gateway, XML parser, models, rate limiting).
+- `article_miner/dedup/`: duplicate detection engine and reporting.
+- `article_miner/infrastructure/insights/`: LLM prompts, extraction adapter, deterministic validation, cache/prefilter.
+- `article_miner/common/`: shared cross-tool utilities (for example, project path helpers used by CLIs).
 
 ## Development
 

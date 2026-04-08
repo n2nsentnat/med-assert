@@ -7,12 +7,12 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
-from article_miner.application.collect_articles import CollectArticlesService
+from article_miner.application.collect.service import CollectArticlesService
 from article_miner.domain.errors import ArticleMinerError, NcbiError
-from article_miner.infrastructure.ncbi.config import NcbiClientConfig
-from article_miner.infrastructure.ncbi.pubmed_gateway import EntrezPubMedGateway
-from article_miner.infrastructure.ncbi.rate_limiter import RateLimiter
-from article_miner.infrastructure.ncbi.resilient_http import ResilientHttpClient
+from article_miner.infrastructure.collect.config import NcbiClientConfig
+from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
+from article_miner.infrastructure.collect.rate_limiter import RateLimiter
+from article_miner.infrastructure.collect.resilient_http import ResilientHttpClient
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 

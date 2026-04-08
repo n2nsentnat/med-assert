@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from article_miner.application.collect_articles import CollectArticlesService
+from article_miner.application.collect.service import CollectArticlesService
 from article_miner.cli.collect_app import app
-from article_miner.domain.article import Article, CollectionOutput
+from article_miner.domain.collect.models import Article, CollectionOutput
 
 
 def test_cli_writes_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

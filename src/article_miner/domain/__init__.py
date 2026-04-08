@@ -1,4 +1,21 @@
-from article_miner.domain.article import Article, Author, CollectionOutput
+from article_miner.domain.collect.models import Article, Author, CollectionOutput
+from article_miner.domain.insights.models import (
+    ArticleInsightRecord,
+    AuditResult,
+    AutoAcceptStatus,
+    ClinicalFieldInsight,
+    ClinicalMeaningfulness,
+    FieldInsightBlock,
+    FindingDirection,
+    GroundingCheck,
+    InsightJobResult,
+    LlmInsightExtraction,
+    PerArticleInsightResult,
+    PerArticleStatus,
+    SemanticFlag,
+    StatisticalSignificance,
+    ValidationPassResult,
+)
 from article_miner.domain.errors import (
     ArticleMinerError,
     ArticleParseError,
@@ -10,8 +27,23 @@ from article_miner.domain.errors import (
 
 __all__ = [
     "Article",
+    "ArticleInsightRecord",
+    "AuditResult",
     "Author",
+    "AutoAcceptStatus",
+    "ClinicalFieldInsight",
+    "ClinicalMeaningfulness",
     "CollectionOutput",
+    "FieldInsightBlock",
+    "FindingDirection",
+    "GroundingCheck",
+    "InsightJobResult",
+    "LlmInsightExtraction",
+    "PerArticleInsightResult",
+    "PerArticleStatus",
+    "SemanticFlag",
+    "StatisticalSignificance",
+    "ValidationPassResult",
     "ArticleMinerError",
     "ArticleParseError",
     "MalformedResponseError",

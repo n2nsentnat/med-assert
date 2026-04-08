@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from article_miner.domain.errors import MalformedResponseError
-from article_miner.infrastructure.ncbi.config import ESEARCH_URL, EFETCH_URL, NcbiClientConfig
-from article_miner.infrastructure.ncbi.pubmed_gateway import EntrezPubMedGateway
+from article_miner.infrastructure.collect.config import ESEARCH_URL, EFETCH_URL, NcbiClientConfig
+from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
 
 
 class FakeHttp:

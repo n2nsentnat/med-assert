@@ -33,3 +33,4 @@ class NcbiClientConfig:
     @property
     def requests_per_second(self) -> float:
         return REQUESTS_PER_SECOND_WITH_KEY if self.api_key else REQUESTS_PER_SECOND_NO_KEY
+

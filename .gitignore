@@ -26,7 +26,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Workflow script default output (pubmed_workflow.sh)
+# Workflow default output directory
 workflow_*/
 
 # Explicit output dir at repo root (e.g. pubmed-workflow -d ./out/...)

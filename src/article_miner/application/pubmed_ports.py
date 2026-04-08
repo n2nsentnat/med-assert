@@ -1,17 +1,5 @@
-"""Ports (interfaces) — application depends on abstractions, not NCBI details."""
+"""Backward-compatible import path for collect ports."""
 
-from __future__ import annotations
+from article_miner.application.collect.ports import PubMedGateway
 
-from typing import Protocol
-
-from article_miner.domain.article import Article
-
-
-class PubMedGateway(Protocol):
-    """Abstract access to PubMed search + fetch (E-utilities)."""
-
-    def search_pmids(self, query: str, max_results: int) -> tuple[int, list[str]]:
-        """Return (total_match_count, pmids in relevance order, truncated to max_results)."""
-
-    def fetch_articles(self, pmids: list[str]) -> tuple[list[Article], list[str]]:
-        """Return (articles in PMID order, warnings)."""
+__all__ = ["PubMedGateway"]

@@ -6,11 +6,11 @@ import os
 
 import pytest
 
-from article_miner.application.collect_articles import CollectArticlesService
-from article_miner.infrastructure.ncbi.config import NcbiClientConfig
-from article_miner.infrastructure.ncbi.pubmed_gateway import EntrezPubMedGateway
-from article_miner.infrastructure.ncbi.rate_limiter import RateLimiter
-from article_miner.infrastructure.ncbi.resilient_http import ResilientHttpClient
+from article_miner.application.collect.service import CollectArticlesService
+from article_miner.infrastructure.collect.config import NcbiClientConfig
+from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
+from article_miner.infrastructure.collect.rate_limiter import RateLimiter
+from article_miner.infrastructure.collect.resilient_http import ResilientHttpClient
 
 
 def _live_enabled() -> bool:

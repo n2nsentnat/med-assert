@@ -9,18 +9,18 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from article_miner.domain.article import Article
+from article_miner.domain.collect.models import Article
 from article_miner.domain.errors import MalformedResponseError
-from article_miner.infrastructure.ncbi.config import (
+from article_miner.infrastructure.collect.config import (
     EFETCH_ID_BATCH_SIZE,
     ESEARCH_PAGE_MAX,
     EFETCH_URL,
     ESEARCH_URL,
     NcbiClientConfig,
 )
-from article_miner.infrastructure.ncbi.esearch_models import ESearchInner, ESearchEnvelope
-from article_miner.infrastructure.ncbi.http_port import HttpTextClient
-from article_miner.infrastructure.ncbi.pubmed_xml import parse_pubmed_xml_document
+from article_miner.infrastructure.collect.esearch_models import ESearchInner, ESearchEnvelope
+from article_miner.infrastructure.collect.http_port import HttpTextClient
+from article_miner.infrastructure.collect.pubmed_xml import parse_pubmed_xml_document
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +31,8 @@ _ERROR_BODY = re.compile(r"<ERROR[^>]*>([^<]+)</ERROR>", re.IGNORECASE | re.DOTA
 class EntrezPubMedGateway:
     """NCBI E-utilities implementation of ``PubMedGateway``.
 
-    Injects :class:`~article_miner.infrastructure.ncbi.http_port.HttpTextClient`;
-    production code should use :class:`~article_miner.infrastructure.ncbi.resilient_http.ResilientHttpClient`
+    Injects :class:`~article_miner.infrastructure.collect.http_port.HttpTextClient`;
+    production code should use :class:`~article_miner.infrastructure.collect.resilient_http.ResilientHttpClient`
     so requests are rate-limited and retried.
     """
 
@@ -174,3 +174,4 @@ class EntrezPubMedGateway:
         parts = [p.strip() for p in _ERROR_BODY.findall(xml_text) if p.strip()]
         detail = "; ".join(parts) if parts else "unknown error"
         raise MalformedResponseError(f"EFetch returned ERROR: {detail}")
+

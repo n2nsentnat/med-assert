@@ -9,7 +9,7 @@ from typing import Iterable
 
 from lxml import etree
 
-from article_miner.domain.article import Article, Author
+from article_miner.domain.collect.models import Article, Author
 from article_miner.domain.errors import ArticleParseError, MalformedResponseError
 
 logger = logging.getLogger(__name__)
@@ -345,3 +345,4 @@ def iter_pubmed_article_elements(xml_text: str) -> Iterable[etree._Element]:
     except etree.XMLSyntaxError as exc:
         raise MalformedResponseError(f"Invalid XML from efetch: {exc}") from exc
     yield from root.xpath(f"//{_ln('PubmedArticle')}")
+

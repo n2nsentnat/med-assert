@@ -34,3 +34,4 @@ class RateLimiter:
                 )
                 time.sleep(wait)
             self._next_allowed = max(self._next_allowed, time.monotonic()) + self._min_interval
+

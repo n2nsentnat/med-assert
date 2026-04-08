@@ -1,12 +1,9 @@
-"""Probabilistic duplicate detection for collected PubMed JSON."""
-
-from article_miner.dedup.engine import (
+from article_miner.application.dedup.service import (
     DedupReport,
     DuplicateCluster,
     build_duplicate_report,
     format_dedup_markdown,
-    normalize_doi,
-    normalize_title,
+    load_collection,
 )
 
 __all__ = [
@@ -14,6 +11,6 @@ __all__ = [
     "DuplicateCluster",
     "build_duplicate_report",
     "format_dedup_markdown",
-    "normalize_doi",
-    "normalize_title",
+    "load_collection",
 ]
+

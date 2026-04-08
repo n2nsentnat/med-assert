@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
+    "litellm>=1.63.0",
     "lxml>=6.0.2",
     "pydantic>=2.12.5",
     "rapidfuzz>=3.14.3",
@@ -16,13 +17,16 @@ dependencies = [
 ]
 
 [project.scripts]
-collect-pubmed = "article_miner.cli.collect_app:run"
-find-pubmed-dupes = "article_miner.cli.dedup_app:run"
+collect-pubmed = "article_miner.cli.collect.app:run"
+find-pubmed-dupes = "article_miner.cli.dedup.app:run"
 pubmed-workflow = "article_miner.cli.pubmed_workflow:run"
+classify-insights = "article_miner.cli.insights.app:run"
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
 ]
 
 [tool.pytest.ini_options]

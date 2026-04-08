@@ -1,1 +1,1 @@
-"""Infrastructure adapters (NCBI HTTP, persistence, etc.)."""
+"""Infrastructure adapters grouped by tool (collect/dedup/insights)."""

@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from article_miner.domain.errors import MalformedResponseError
-from article_miner.infrastructure.ncbi.pubmed_xml import (
+from article_miner.infrastructure.collect.pubmed_xml import (
     _parse_pubmed_month,
     parse_pubmed_article_element,
     parse_pubmed_xml_document,

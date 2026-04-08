@@ -6,9 +6,9 @@ import httpx
 import pytest
 
 from article_miner.domain.errors import NcbiTransportError
-from article_miner.infrastructure.ncbi.config import NcbiClientConfig
-from article_miner.infrastructure.ncbi.rate_limiter import RateLimiter
-from article_miner.infrastructure.ncbi.resilient_http import (
+from article_miner.infrastructure.collect.config import NcbiClientConfig
+from article_miner.infrastructure.collect.rate_limiter import RateLimiter
+from article_miner.infrastructure.collect.resilient_http import (
     ResilientHttpClient,
     _redact_params,
 )
@@ -53,7 +53,7 @@ def test_backoff_caps_at_max_backoff_seconds() -> None:
     )
     http = ResilientHttpClient(config, RateLimiter(1000.0), client=httpx.Client())
     try:
-        with patch("article_miner.infrastructure.ncbi.resilient_http.time.sleep") as mock_sleep:
+        with patch("article_miner.infrastructure.collect.resilient_http.time.sleep") as mock_sleep:
             http._backoff(0)
         mock_sleep.assert_called_once()
         assert mock_sleep.call_args[0][0] == 2.0
