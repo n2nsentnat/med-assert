@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,8 @@ class InsightJobConfig:
     enable_audit: bool = True
     cache_path: Path | None = None
     incremental_jsonl_path: Path | None = None
+    progress: bool = True
+    progress_every: int = 1
     #: If set, warn when title+abstract (canonical haystack) exceeds this length.
     max_canonical_chars: int | None = 12_000
     extra_completion_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -65,6 +68,7 @@ class InsightClassificationJob:
 
     async def run(self, collection: CollectionOutput) -> InsightJobResult:
         sem = asyncio.Semaphore(self._config.concurrency)
+        total_articles = len(collection.articles)
         totals: dict[str, float] = {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -83,10 +87,26 @@ class InsightClassificationJob:
 
         pending = [asyncio.create_task(_one(i, a)) for i, a in enumerate(collection.articles)]
         indexed_results: list[tuple[int, PerArticleInsightResult]] = []
+        completed = 0
         for done in asyncio.as_completed(pending):
             idx, row = await done
             indexed_results.append((idx, row))
             self._append_incremental_row(row)
+            completed += 1
+            if self._config.progress and (
+                completed == total_articles or completed % max(1, self._config.progress_every) == 0
+            ):
+                logger.info(
+                    "insights progress: %s/%s done (auto=%s flagged=%s review=%s invalid=%s api_fail=%s skipped=%s)",
+                    completed,
+                    total_articles,
+                    int(totals.get("auto_accepted", 0)),
+                    int(totals.get("validated_but_flagged", 0)),
+                    int(totals.get("needs_review", 0)),
+                    int(totals.get("invalid_output", 0)),
+                    int(totals.get("api_failure", 0)),
+                    int(totals.get("skipped_prefilter", 0)),
+                )
 
         indexed_results.sort(key=lambda x: x[0])
         results = [row for _, row in indexed_results]
@@ -109,11 +129,13 @@ class InsightClassificationJob:
             f.write(row.model_dump_json() + "\n")
 
     async def _process_article(self, article: Article, totals: dict[str, float]) -> PerArticleInsightResult:
+        t0 = time.perf_counter()
+        logger.info("insights article start: pmid=%s", article.pmid)
         decision = prefilter_article(article)
         in_hash = input_hash(article)
         if decision.action == PrefilterAction.SKIP:
             totals["skipped_prefilter"] += 1
-            return PerArticleInsightResult(
+            row = PerArticleInsightResult(
                 pmid=article.pmid,
                 prompt_version=PROMPT_VERSION,
                 model_name=self._config.model,
@@ -123,16 +145,39 @@ class InsightClassificationJob:
                 prefilter_note=decision.reason,
                 raw_llm_text="",
             )
+            logger.info(
+                "insights article done: pmid=%s status=%s route=%s elapsed_ms=%s",
+                article.pmid,
+                row.status,
+                decision.reason,
+                int((time.perf_counter() - t0) * 1000),
+            )
+            return row
         if decision.action == PrefilterAction.MINIMAL_UNCLEAR:
             totals["validated_but_flagged"] += 1
-            return self._build_prefilter_minimal_unclear(article, decision.reason, in_hash, self._config.model)
+            row = self._build_prefilter_minimal_unclear(article, decision.reason, in_hash, self._config.model)
+            logger.info(
+                "insights article done: pmid=%s status=%s route=%s elapsed_ms=%s",
+                article.pmid,
+                row.status,
+                decision.reason,
+                int((time.perf_counter() - t0) * 1000),
+            )
+            return row
 
         ck = cache_key(article, self._config.model)
         cached = self._cache.get(ck)
         if cached:
             ext, err = parse_extraction_json(cached)
             if ext:
-                return await self._validate_and_finalize(article, ext, totals, raw_llm_text=cached)
+                row = await self._validate_and_finalize(article, ext, totals, raw_llm_text=cached)
+                logger.info(
+                    "insights article done: pmid=%s status=%s source=cache elapsed_ms=%s",
+                    article.pmid,
+                    row.status,
+                    int((time.perf_counter() - t0) * 1000),
+                )
+                return row
             logger.warning("Cache parse failed for PMID %s", article.pmid)
 
         kw = self._config.extra_completion_kwargs
@@ -146,11 +191,17 @@ class InsightClassificationJob:
                 break
             except Exception as exc:
                 last_err = str(exc)
-                logger.debug("extract attempt %s failed: %s", attempt + 1, exc)
+                logger.warning(
+                    "insights extract retry: pmid=%s attempt=%s/%s error=%s",
+                    article.pmid,
+                    attempt + 1,
+                    self._config.max_retries,
+                    exc,
+                )
                 await asyncio.sleep(0.5 * (2**attempt))
         else:
             totals["api_failure"] += 1
-            return PerArticleInsightResult(
+            row = PerArticleInsightResult(
                 pmid=article.pmid,
                 prompt_version=PROMPT_VERSION,
                 model_name=self._config.model,
@@ -159,6 +210,13 @@ class InsightClassificationJob:
                 status=PerArticleStatus.API_FAILURE,
                 error_message=last_err,
             )
+            logger.info(
+                "insights article done: pmid=%s status=%s elapsed_ms=%s",
+                article.pmid,
+                row.status,
+                int((time.perf_counter() - t0) * 1000),
+            )
+            return row
 
         ext, err = parse_extraction_json(raw_text)
         if not ext:
@@ -180,7 +238,7 @@ class InsightClassificationJob:
 
         if not ext:
             totals["invalid_output"] += 1
-            return PerArticleInsightResult(
+            row = PerArticleInsightResult(
                 pmid=article.pmid,
                 prompt_version=PROMPT_VERSION,
                 model_name=self._config.model,
@@ -190,9 +248,23 @@ class InsightClassificationJob:
                 error_message="; ".join(err) if err else last_err,
                 raw_llm_text=raw_text[:8000],
             )
+            logger.info(
+                "insights article done: pmid=%s status=%s elapsed_ms=%s",
+                article.pmid,
+                row.status,
+                int((time.perf_counter() - t0) * 1000),
+            )
+            return row
 
         self._cache.set(ck, raw_text)
-        return await self._validate_and_finalize(article, ext, totals, raw_llm_text=raw_text)
+        row = await self._validate_and_finalize(article, ext, totals, raw_llm_text=raw_text)
+        logger.info(
+            "insights article done: pmid=%s status=%s elapsed_ms=%s",
+            article.pmid,
+            row.status,
+            int((time.perf_counter() - t0) * 1000),
+        )
+        return row
 
     @staticmethod
     def _build_prefilter_minimal_unclear(

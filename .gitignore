@@ -19,6 +19,10 @@ pip-wheel-metadata/
 venv/
 ENV/
 
+# Local secrets
+.env
+.env.*
+
 # Testing / coverage
 .pytest_cache/
 .coverage

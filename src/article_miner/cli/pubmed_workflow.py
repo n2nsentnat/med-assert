@@ -6,6 +6,7 @@ import asyncio
 import argparse
 import os
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -13,13 +14,88 @@ from pydantic import ValidationError
 
 from article_miner.application.collect.service import CollectArticlesService
 from article_miner.application.insights.job import InsightJobConfig, run_insight_job
+from article_miner.common.env import load_project_env
 from article_miner.common.project_paths import default_project_root
 from article_miner.domain.errors import ArticleMinerError, NcbiError
+from article_miner.domain.insights.models import InsightJobResult
 from article_miner.application.dedup.service import build_duplicate_report, format_dedup_markdown
 from article_miner.infrastructure.collect.config import NcbiClientConfig
 from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
 from article_miner.infrastructure.collect.rate_limiter import RateLimiter
 from article_miner.infrastructure.collect.resilient_http import ResilientHttpClient
+
+
+def _report_path_for_output(output: Path) -> Path:
+    return output.with_name("insight_output_report.md")
+
+
+def _write_insight_report_md(result: InsightJobResult, report_path: Path, output_path: Path) -> None:
+    findings = Counter[str]()
+    statuses = Counter[str]()
+    needs_review_pmids: list[str] = []
+    invalid_pmids: list[str] = []
+    api_fail_pmids: list[str] = []
+
+    for row in result.articles:
+        statuses[row.status.value] += 1
+        if row.insight is not None:
+            findings[row.insight.extraction.finding_direction.value] += 1
+        if row.status.value == "needs_human_review":
+            needs_review_pmids.append(row.pmid)
+        elif row.status.value == "invalid_output":
+            invalid_pmids.append(row.pmid)
+        elif row.status.value == "api_failure":
+            api_fail_pmids.append(row.pmid)
+
+    lines = [
+        "# Insight Output Report",
+        "",
+        "## Summary",
+        f"- Source query: `{result.source_query or '(none)'}`",
+        f"- Prompt version: `{result.prompt_version}`",
+        f"- Model: `{result.model}`",
+        f"- Total articles: **{len(result.articles)}**",
+        "",
+        "## Status counts",
+    ]
+    for k, v in sorted(statuses.items()):
+        lines.append(f"- `{k}`: **{v}**")
+
+    lines.extend(
+        [
+            "",
+            "## Finding direction distribution",
+        ]
+    )
+    if findings:
+        for k, v in sorted(findings.items()):
+            lines.append(f"- `{k}`: **{v}**")
+    else:
+        lines.append("- No extracted findings (all rows skipped/failed).")
+
+    lines.extend(
+        [
+            "",
+            "## Review / failure locations",
+            f"- Full machine-readable output: `{output_path}`",
+            "- In that file, inspect rows where `status` is one of:",
+            "  - `needs_human_review`",
+            "  - `invalid_output`",
+            "  - `api_failure`",
+            "",
+            "### PMIDs needing human review",
+            ", ".join(needs_review_pmids[:100]) if needs_review_pmids else "(none)",
+            "",
+            "### PMIDs with invalid output",
+            ", ".join(invalid_pmids[:100]) if invalid_pmids else "(none)",
+            "",
+            "### PMIDs with API failures",
+            ", ".join(api_fail_pmids[:100]) if api_fail_pmids else "(none)",
+        ]
+    )
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -61,6 +137,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="LiteLLM model id for insight classification (default: gpt-4o-mini).",
     )
     p.add_argument(
+        "--insight-llm",
+        choices=("openai", "gemini", "claude", "anthropic", "ollama"),
+        default=None,
+        help=(
+            "Insight provider shortcut. Model comes from env (INSIGHT_MODEL_OPENAI / "
+            "INSIGHT_MODEL_GEMINI / INSIGHT_MODEL_CLAUDE / OLLAMA_MODEL) or provider defaults."
+        ),
+    )
+    p.add_argument(
         "--insight-concurrency",
         type=int,
         default=8,
@@ -93,6 +178,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_project_env()
     args = _parse_args(argv)
     query = " ".join(args.query).strip()
     if not query:
@@ -147,13 +233,45 @@ def main(argv: list[str] | None = None) -> int:
         dupes_md.write_text(format_dedup_markdown(report), encoding="utf-8")
 
         if args.with_insights:
+            if not args.insight_llm:
+                print(
+                    "error: --insight-llm is required when --with-insights is enabled",
+                    file=sys.stderr,
+                )
+                return 2
+            provider = (args.insight_llm or "").strip().lower()
+            extra_kwargs: dict[str, str] = {}
+            if provider == "openai":
+                insight_model = os.environ.get("INSIGHT_MODEL_OPENAI", "gpt-4o-mini")
+            elif provider == "gemini":
+                insight_model = os.environ.get("INSIGHT_MODEL_GEMINI", "gemini/gemini-2.0-flash")
+            elif provider in ("claude", "anthropic"):
+                insight_model = os.environ.get(
+                    "INSIGHT_MODEL_CLAUDE", "anthropic/claude-3-5-sonnet-20241022"
+                )
+            elif provider == "ollama":
+                insight_model = os.environ.get("OLLAMA_MODEL", "ollama/gemma3:4b")
+                if not insight_model.startswith("ollama/"):
+                    insight_model = f"ollama/{insight_model}"
+                extra_kwargs["api_base"] = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+            else:
+                insight_model = args.insight_model
+
+            if provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
+                print("warning: OPENAI_API_KEY is not set", file=sys.stderr)
+            if provider == "gemini" and not os.environ.get("GEMINI_API_KEY"):
+                print("warning: GEMINI_API_KEY is not set", file=sys.stderr)
+            if provider in ("claude", "anthropic") and not os.environ.get("ANTHROPIC_API_KEY"):
+                print("warning: ANTHROPIC_API_KEY is not set", file=sys.stderr)
+
             insights_path = Path(insights_path).expanduser().resolve()
             insight_config = InsightJobConfig(
-                model=args.insight_model,
+                model=insight_model,
                 confidence_threshold=args.insight_confidence,
                 concurrency=max(1, args.insight_concurrency),
                 enable_audit=not args.insight_no_audit,
                 cache_path=args.insight_cache,
+                extra_completion_kwargs=extra_kwargs,
             )
             insight_result = asyncio.run(run_insight_job(result, insight_config))
             insights_path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +283,12 @@ def main(argv: list[str] | None = None) -> int:
                 summary_path.write_text(insight_result.model_dump_json(indent=2), encoding="utf-8")
             else:
                 insights_path.write_text(insight_result.model_dump_json(indent=2), encoding="utf-8")
+            report_path = _report_path_for_output(insights_path)
+            _write_insight_report_md(
+                result=insight_result,
+                report_path=report_path,
+                output_path=insights_path,
+            )
     finally:
         http.close()
 
@@ -174,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  dupes Markdown: {dupes_md}")
     if args.with_insights:
         print(f"  insights: {insights_path}")
+        print(f"  insights report: {_report_path_for_output(insights_path)}")
         if insights_path.suffix.lower() == ".jsonl":
             print(f"  insights summary: {insights_path.with_suffix('.summary.json')}")
     return 0

@@ -22,6 +22,7 @@ from article_miner.infrastructure.insights.prompts import (
 
 logger = logging.getLogger(__name__)
 
+# Keep LiteLLM internals quiet; rely on application-level progress logs.
 litellm.suppress_debug_info = True
 
 _AUDIT_VALUES = {"supported", "weakly_supported", "unsupported"}

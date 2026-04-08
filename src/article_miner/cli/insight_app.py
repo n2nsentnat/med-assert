@@ -4,15 +4,94 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+from collections import Counter
 from pathlib import Path
 
 import typer
 
 from article_miner.application.insights.job import InsightJobConfig, run_insight_job
+from article_miner.common.env import load_project_env
 from article_miner.domain.collect.models import CollectionOutput
+from article_miner.domain.insights.models import InsightJobResult
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+
+
+def _report_path_for_output(output: Path) -> Path:
+    if output.suffix.lower() == ".jsonl":
+        return output.with_name("insight_output_report.md")
+    return output.with_name("insight_output_report.md")
+
+
+def _write_insight_report_md(result: InsightJobResult, report_path: Path, output_path: Path) -> None:
+    findings = Counter[str]()
+    statuses = Counter[str]()
+    needs_review_pmids: list[str] = []
+    invalid_pmids: list[str] = []
+    api_fail_pmids: list[str] = []
+
+    for row in result.articles:
+        statuses[row.status.value] += 1
+        if row.insight is not None:
+            findings[row.insight.extraction.finding_direction.value] += 1
+        if row.status.value == "needs_human_review":
+            needs_review_pmids.append(row.pmid)
+        elif row.status.value == "invalid_output":
+            invalid_pmids.append(row.pmid)
+        elif row.status.value == "api_failure":
+            api_fail_pmids.append(row.pmid)
+
+    lines = [
+        "# Insight Output Report",
+        "",
+        "## Summary",
+        f"- Source query: `{result.source_query or '(none)'}`",
+        f"- Prompt version: `{result.prompt_version}`",
+        f"- Model: `{result.model}`",
+        f"- Total articles: **{len(result.articles)}**",
+        "",
+        "## Status counts",
+    ]
+    for k, v in sorted(statuses.items()):
+        lines.append(f"- `{k}`: **{v}**")
+
+    lines.extend(
+        [
+            "",
+            "## Finding direction distribution",
+        ]
+    )
+    if findings:
+        for k, v in sorted(findings.items()):
+            lines.append(f"- `{k}`: **{v}**")
+    else:
+        lines.append("- No extracted findings (all rows skipped/failed).")
+
+    lines.extend(
+        [
+            "",
+            "## Review / failure locations",
+            f"- Full machine-readable output: `{output_path}`",
+            "- In that file, inspect rows where `status` is one of:",
+            "  - `needs_human_review`",
+            "  - `invalid_output`",
+            "  - `api_failure`",
+            "",
+            "### PMIDs needing human review",
+            ", ".join(needs_review_pmids[:100]) if needs_review_pmids else "(none)",
+            "",
+            "### PMIDs with invalid output",
+            ", ".join(invalid_pmids[:100]) if invalid_pmids else "(none)",
+            "",
+            "### PMIDs with API failures",
+            ", ".join(api_fail_pmids[:100]) if api_fail_pmids else "(none)",
+        ]
+    )
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main(
@@ -35,6 +114,11 @@ def main(
         "-m",
         help="LiteLLM model id (e.g. gpt-4o-mini, anthropic/claude-3-5-sonnet-20241022, gemini/gemini-1.5-flash).",
     ),
+    llm: str | None = typer.Option(
+        None,
+        "--llm",
+        help="Provider shortcut: openai | gemini | claude | ollama (model from .env defaults).",
+    ),
     concurrency: int = typer.Option(8, "--concurrency", "-c", min=1, max=64),
     no_audit: bool = typer.Option(False, "--no-audit", help="Disable Pass 3 audit calls."),
     cache: Path | None = typer.Option(
@@ -48,10 +132,46 @@ def main(
         "--incremental-jsonl",
         help="Append per-article results as they complete (crash-resilient progress log).",
     ),
+    no_progress: bool = typer.Option(
+        False,
+        "--no-progress",
+        help="Disable periodic progress logs.",
+    ),
+    progress_every: int = typer.Option(
+        1,
+        "--progress-every",
+        min=1,
+        help="Print progress every N completed articles (default: 1).",
+    ),
+    report_md: Path | None = typer.Option(
+        None,
+        "--report-md",
+        help="Markdown summary report path (default: insight_output_report.md next to output).",
+    ),
 ) -> None:
     """Run evidence-grounded LLM insight classification (async, one article per request)."""
+    load_project_env()
+    if not no_progress:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    provider = (llm or "").strip().lower()
+    selected_model = model
+    extra_kwargs: dict[str, str] = {}
+    if provider == "openai":
+        selected_model = os.environ.get("INSIGHT_MODEL_OPENAI", "gpt-4o-mini")
+    elif provider == "gemini":
+        selected_model = os.environ.get("INSIGHT_MODEL_GEMINI", "gemini/gemini-2.0-flash")
+    elif provider in ("claude", "anthropic"):
+        selected_model = os.environ.get("INSIGHT_MODEL_CLAUDE", "anthropic/claude-3-5-sonnet-20241022")
+    elif provider == "ollama":
+        selected_model = os.environ.get("OLLAMA_MODEL", "ollama/gemma3:4b")
+        if not selected_model.startswith("ollama/"):
+            selected_model = f"ollama/{selected_model}"
+        extra_kwargs["api_base"] = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    elif provider:
+        raise typer.BadParameter("--llm must be one of: openai, gemini, claude, ollama")
+
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY")
-    if not api_key and not os.environ.get("LITELLM_LOG"):
+    if provider != "ollama" and not api_key and not os.environ.get("LITELLM_LOG"):
         typer.secho(
             "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY for your provider.",
             err=True,
@@ -62,12 +182,15 @@ def main(
     collection = CollectionOutput.model_validate_json(text)
 
     config = InsightJobConfig(
-        model=model,
+        model=selected_model,
         confidence_threshold=confidence,
         concurrency=concurrency,
         enable_audit=not no_audit,
         cache_path=cache,
         incremental_jsonl_path=incremental_jsonl,
+        progress=not no_progress,
+        progress_every=progress_every,
+        extra_completion_kwargs=extra_kwargs,
     )
 
     if incremental_jsonl is not None:
@@ -90,6 +213,10 @@ def main(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
         typer.echo(f"Wrote {out_path}")
+
+    rep_path = report_md or _report_path_for_output(out_path)
+    _write_insight_report_md(result, rep_path, out_path)
+    typer.echo(f"Wrote report {rep_path}")
 
     typer.echo(
         f"Stats: auto_accepted={result.stats.get('auto_accepted', 0)} "

@@ -8,6 +8,7 @@ import typer
 from pydantic import ValidationError
 
 from article_miner.application.collect.service import CollectArticlesService
+from article_miner.common.env import load_project_env
 from article_miner.domain.errors import ArticleMinerError, NcbiError
 from article_miner.infrastructure.collect.config import NcbiClientConfig
 from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
@@ -55,6 +56,7 @@ def collect(
     ),
 ) -> None:
     """Search PubMed and save structured article metadata as JSON."""
+    load_project_env()
     config = NcbiClientConfig(api_key=api_key, email=email, tool=tool)
     limiter = RateLimiter(config.requests_per_second)
     http = ResilientHttpClient(config, limiter)
