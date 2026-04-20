@@ -12,7 +12,7 @@ This Command-line tool searches [PubMed](https://pubmed.ncbi.nlm.nih.gov/) via t
 
     Trust Triage: Multi-pass validation to sort findings into auto_accepted vs. needs_human_review.
 
-
+**Roadmap / planned work:** [TODO.md](TODO.md)
 ## Topics
 
 - [Requirements](README.md#requirements)
