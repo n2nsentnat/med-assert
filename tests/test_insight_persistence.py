@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 from article_miner.application.insights.job import InsightJobConfig, run_insight_job
 from article_miner.domain.collect.models import Article, CollectionOutput
@@ -32,7 +33,8 @@ def test_incremental_jsonl_persists_each_article(tmp_path) -> None:
         warnings=[],
     )
     cfg = InsightJobConfig(
-        model="gpt-4o-mini",
+        model="openai:gpt-4o-mini",
+        chat_model=MagicMock(),
         enable_audit=False,
         incremental_jsonl_path=inc_path,
     )

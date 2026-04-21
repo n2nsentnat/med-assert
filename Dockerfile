@@ -20,7 +20,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 
 RUN pip install --upgrade pip \
-    && pip install .
+    && pip install ".[specter]"
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
     && mkdir -p /app/article_miner_output \

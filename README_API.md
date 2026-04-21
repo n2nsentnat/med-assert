@@ -1,6 +1,6 @@
 # article-miner HTTP API
 
-FastAPI service exposing **collect** (PubMed), **dedup** (duplicate groups), and **insights** (LLM classification). Request and response models are defined with Pydantic; interactive docs are served by FastAPI.
+FastAPI service exposing **collect** (PubMed), **dedup** (duplicate groups, including optional **SPECTER 2** embeddings with **FAISS** similarity search), and **insights** (LLM classification via LangChain). Request and response models are defined with Pydantic; interactive docs are served by FastAPI.
 
 ## Run the server
 
@@ -51,8 +51,8 @@ Every mutating endpoint accepts:
 | Endpoint | Default file |
 |----------|----------------|
 | `POST /collect` | `article_miner_output/collect.json` |
-| `POST /dedup` | `article_miner_output/dedup.json` (optional sibling `dedup.md` when `include_markdown` is true) |
-| `POST /insights` | `article_miner_output/insights.json` or `insights.jsonl` depending on `insight_file_format` |
+| `POST /dedup` | Reads **input** from `collection_path` (see below). Writes `article_miner_output/dedup.json` by default (optional sibling `dedup.md` when `include_markdown` is true) |
+| `POST /insights` | Reads **input** from `collection_path`. Writes `article_miner_output/insights.json` or `insights.jsonl` by default (see `insight_file_format`) |
 
 **File-mode response** (`output_format: "file"`):
 
@@ -132,49 +132,55 @@ curl -s -X POST http://127.0.0.1:8000/collect \
 
 ### `POST /dedup`
 
-Build a duplicate-group report from an existing collection (the JSON produced by `/collect` or the same schema).
+Build a duplicate-group report from a **collection JSON file already on the server** (same `CollectionOutput` schema as `/collect` returns or writes).
 
 **Request body (JSON)**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `collection` | object | required | Full `CollectionOutput` document |
+| `collection_path` | string | required | Path on the **server** to a `CollectionOutput` JSON file (e.g. path returned as `paths.collection_json` from `POST /collect` with `output_format=file`) |
 | `include_markdown` | boolean | `false` | Include Markdown (in JSON response or as a file when using `file` mode) |
+| `enable_specter_faiss` | boolean | `false` | Optional SPECTER 2 embeddings + FAISS layer (requires `pip install 'article-miner[specter]'` on the server) |
+| `specter_model` | string \| null | `null` | Override HF model id (default `allenai/specter2_base`) |
 | `output_format` | string | `"json"` | `json` or `file` |
 | `output_path` | string \| null | `null` | Server path for dedup JSON when `output_format` is `file` |
 
 **Success:** `200` — either `DedupApiResponse` (`report`, optional `markdown` in the body) or `FileWriteResponse` with `paths.report_json` and, when `include_markdown` is true, `paths.markdown` (sibling `.md` file next to the JSON path).
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `404` | `collection_path` does not exist or is not a file |
+| `422` | File is not valid JSON or does not match `CollectionOutput` |
 
 **Example**
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/dedup \
   -H 'Content-Type: application/json' \
-  -d '{"collection":{...},"include_markdown":true}'
+  -d '{"collection_path":"/path/on/server/collect.json","include_markdown":true}'
 ```
-
-(Adjust the JSON so the top level is `{"collection": { ... }}` if your file is raw `CollectionOutput` — wrap it: `{"collection": <contents of results.json>}`).
 
 ---
 
 ### `POST /insights`
 
-Run the async LLM insight job on a collection. Returns an `InsightJobResult` (per-article rows, aggregate `stats`, etc.).
+Run the async LLM insight job on a **collection JSON file on the server** (same `CollectionOutput` schema as `/collect`; typically the same path you used for `/dedup`). Returns an `InsightJobResult` (per-article rows, aggregate `stats`, etc.).
 
 **Request body (JSON)**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `collection` | object | required | `CollectionOutput` |
+| `collection_path` | string | required | Path on the **server** to a `CollectionOutput` JSON file |
 | `llm` | string \| null | `null` | Provider shortcut: `openai`, `gemini`, `claude`, `ollama` (model from env / defaults) |
-| `model` | string \| null | `null` | Direct LiteLLM model id when `llm` is not set |
+| `model` | string \| null | `null` | Explicit model id when `llm` is not set (provider inferred) |
 | `concurrency` | integer | `8` | Parallel articles (1–64) |
 | `enable_audit` | boolean | `true` | Enable optional audit pass |
 | `confidence_threshold` | number | `0.5` | 0.0–1.0 |
 | `cache_path` | string \| null | `null` | Optional SQLite cache path on the server |
 | `progress` | boolean | `false` | Enable progress logging |
 | `progress_every` | integer | `1` | Progress log frequency |
-| `extra_completion_kwargs` | object | `{}` | Extra args merged into LiteLLM calls |
 | `output_format` | string | `"json"` | `json` or `file` |
 | `output_path` | string \| null | `null` | Server path for the main insights file when `output_format` is `file` |
 | `insight_file_format` | string | `"json"` | `json` or `jsonl` (JSONL also writes a `.summary.json` next to the JSONL, same as CLI) |
@@ -189,7 +195,8 @@ If the path has no `.json` / `.jsonl` suffix, an extension is added from `insigh
 | Status | When |
 |--------|------|
 | `400` | Unknown `llm` provider name |
-| `422` | Validation failed |
+| `404` | `collection_path` does not exist or is not a file |
+| `422` | File is not valid JSON, does not match `CollectionOutput`, or insight job validation failed |
 
 **Example**
 
@@ -197,7 +204,7 @@ If the path has no `.json` / `.jsonl` suffix, an extension is added from `insigh
 curl -s -X POST http://127.0.0.1:8000/insights \
   -H 'Content-Type: application/json' \
   -d '{
-    "collection": { "...": "paste CollectionOutput here" },
+    "collection_path": "/path/on/server/collect.json",
     "llm": "openai",
     "concurrency": 4
   }'
@@ -207,9 +214,9 @@ Long-running jobs: this request stays open until the job finishes; use a client 
 
 ## Typical pipeline
 
-1. `POST /collect` → save or pass `CollectionOutput`
-2. `POST /dedup` with `{"collection": ...}` → review duplicate groups
-3. `POST /insights` with the same `collection` (and LLM env configured) → structured insights
+1. `POST /collect` with `output_format=file` → note `paths.collection_json` on the server
+2. `POST /dedup` with `{"collection_path": "<that path>"}` → review duplicate groups (or return JSON in the response body with default `output_format=json`)
+3. `POST /insights` with `{"collection_path": "<same or updated collect path>"}` (and LLM env configured) → structured insights
 
 ## See also
 

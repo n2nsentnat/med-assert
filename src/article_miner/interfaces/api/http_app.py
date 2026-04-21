@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
+from typing import Annotated, Union
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from pydantic import ValidationError
 
 from article_miner.application.collect.service import CollectArticlesService
@@ -14,6 +14,10 @@ from article_miner.application.dedup.service import (
     format_dedup_markdown,
 )
 from article_miner.application.insight_job import InsightJobConfig, run_insight_job
+from article_miner.infrastructure.insights.chat_model_factory import (
+    build_chat_model,
+    insight_display_name,
+)
 from article_miner.application.insights.llm_provider_registry import (
     registered_insight_providers,
 )
@@ -37,15 +41,23 @@ from article_miner.interfaces.api.output_paths import (
 )
 from article_miner.interfaces.api.schemas import (
     CollectRequest,
+    DEDUP_OPENAPI_EXAMPLES,
     DedupApiResponse,
     DedupRequest,
     FileWriteResponse,
+    INSIGHT_OPENAPI_EXAMPLES,
     InsightRequest,
 )
 
 app = FastAPI(
     title="article-miner",
-    description="PubMed collection, duplicate grouping, and LLM insight classification.",
+    description=(
+        "PubMed collection, duplicate grouping (rule-based + optional SPECTER 2 / FAISS), "
+        "and LLM insight classification (LangChain). "
+        "**Request bodies** use `CollectRequest`, `DedupRequest`, and `InsightRequest`. "
+        "Dedup and insights both take a server `collection_path` to **CollectionOutput** JSON "
+        "(not an inlined collection object)."
+    ),
     version="0.1.0",
 )
 
@@ -58,6 +70,27 @@ def health() -> dict[str, str]:
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _load_collection_output(collection_path: str) -> CollectionOutput:
+    """Read ``CollectionOutput`` JSON from a path on the server host."""
+    path = Path(collection_path).expanduser().resolve()
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection file not found: {path}",
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read collection file {path}: {exc}",
+        ) from exc
+    try:
+        return CollectionOutput.model_validate_json(raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
 
 def _write_insight_files(
@@ -83,7 +116,11 @@ def _write_insight_files(
     return paths
 
 
-@app.post("/collect", response_model=Union[CollectionOutput, FileWriteResponse])
+@app.post(
+    "/collect",
+    response_model=Union[CollectionOutput, FileWriteResponse],
+    summary="Collect PubMed articles",
+)
 def post_collect(body: CollectRequest) -> Union[CollectionOutput, FileWriteResponse]:
     load_project_env()
     config = NcbiClientConfig(
@@ -120,9 +157,31 @@ def post_collect(body: CollectRequest) -> Union[CollectionOutput, FileWriteRespo
         http.close()
 
 
-@app.post("/dedup", response_model=Union[DedupApiResponse, FileWriteResponse])
-def post_dedup(body: DedupRequest) -> Union[DedupApiResponse, FileWriteResponse]:
-    report = build_duplicate_report(body.collection)
+@app.post(
+    "/dedup",
+    response_model=Union[DedupApiResponse, FileWriteResponse],
+    summary="Find duplicate article groups",
+    description=(
+        "Request body: **DedupRequest** — `collection_path` (server path to ``CollectionOutput`` JSON) "
+        "plus optional SPECTER flags. Use **Examples** in Swagger for sample JSON."
+    ),
+    response_description=(
+        "`output_format=json`: `DedupApiResponse` with `report` + optional `markdown`. "
+        "`output_format=file`: `FileWriteResponse` with server paths only."
+    ),
+)
+def post_dedup(
+    body: Annotated[
+        DedupRequest,
+        Body(openapi_examples=DEDUP_OPENAPI_EXAMPLES),
+    ],
+) -> Union[DedupApiResponse, FileWriteResponse]:
+    collection = _load_collection_output(body.collection_path)
+    report = build_duplicate_report(
+        collection,
+        enable_specter_faiss=body.enable_specter_faiss,
+        specter_model=body.specter_model,
+    )
     md_text = format_dedup_markdown(report) if body.include_markdown else None
 
     if body.output_format == "file":
@@ -148,23 +207,43 @@ def post_dedup(body: DedupRequest) -> Union[DedupApiResponse, FileWriteResponse]
     return DedupApiResponse(report=report, markdown=md_text)
 
 
-@app.post("/insights", response_model=Union[InsightJobResult, FileWriteResponse])
+@app.post(
+    "/insights",
+    response_model=Union[InsightJobResult, FileWriteResponse],
+    summary="Run insight classification job",
+    description=(
+        "Request body: **InsightRequest** — `collection_path` (server path to ``CollectionOutput`` JSON) "
+        "plus LLM options. Use **Examples** in Swagger for sample JSON."
+    ),
+    response_description=(
+        "`output_format=json`: full `InsightJobResult`. "
+        "`output_format=file`: `FileWriteResponse` with paths to written files."
+    ),
+)
 async def post_insights(
-    body: InsightRequest,
+    body: Annotated[
+        InsightRequest,
+        Body(openapi_examples=INSIGHT_OPENAPI_EXAMPLES),
+    ],
 ) -> Union[InsightJobResult, FileWriteResponse]:
     load_project_env()
     try:
-        model, extra = body.resolve_model_and_extras()
+        resolution = body.resolve_insight_resolution()
     except KeyError as exc:
         allowed = ", ".join(registered_insight_providers())
         raise HTTPException(
             status_code=400, detail=f"llm must be one of: {allowed}"
         ) from exc
 
+    chat_model = build_chat_model(resolution)
+    display_name = insight_display_name(resolution)
+
     cache = Path(body.cache_path) if body.cache_path else None
 
     config = InsightJobConfig(
-        model=model,
+        model=display_name,
+        chat_model=chat_model,
+        audit_chat_model=chat_model,
         confidence_threshold=body.confidence_threshold,
         concurrency=body.concurrency,
         enable_audit=body.enable_audit,
@@ -172,11 +251,11 @@ async def post_insights(
         incremental_jsonl_path=None,
         progress=body.progress,
         progress_every=body.progress_every,
-        extra_completion_kwargs=extra,
     )
 
+    collection = _load_collection_output(body.collection_path)
     try:
-        result = await run_insight_job(body.collection, config)
+        result = await run_insight_job(collection, config)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 

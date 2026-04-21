@@ -18,32 +18,32 @@ def test_normalize_anthropic_alias() -> None:
 
 def test_resolve_openai_uses_env_and_default() -> None:
     r = resolve_insight_llm_provider("openai", {})
-    assert r.model == "gpt-4o-mini"
-    assert r.extra_completion_kwargs == {}
+    assert r.model_id == "gpt-4o-mini"
+    assert r.extra == {}
 
     r2 = resolve_insight_llm_provider("openai", {"INSIGHT_MODEL_OPENAI": "gpt-4o"})
-    assert r2.model == "gpt-4o"
+    assert r2.model_id == "gpt-4o"
 
 
 def test_resolve_ollama_prefix_and_base() -> None:
     r = resolve_insight_llm_provider("ollama", {})
-    assert r.model == "ollama/gemma3:4b"
-    assert r.extra_completion_kwargs["api_base"] == "http://localhost:11434"
+    assert r.model_id == "gemma3:4b"
+    assert r.extra["base_url"] == "http://localhost:11434"
 
     r2 = resolve_insight_llm_provider(
         "ollama",
         {"OLLAMA_MODEL": "mistral:7b", "OLLAMA_BASE_URL": "http://127.0.0.1:11434"},
     )
-    assert r2.model == "ollama/mistral:7b"
-    assert r2.extra_completion_kwargs["api_base"] == "http://127.0.0.1:11434"
+    assert r2.model_id == "mistral:7b"
+    assert r2.extra["base_url"] == "http://127.0.0.1:11434"
 
 
 def test_resolve_gemini_claude_defaults() -> None:
     g = resolve_insight_llm_provider("gemini", {})
-    assert g.model.startswith("gemini/")
+    assert "gemini" in g.model_id.lower()
 
     c = resolve_insight_llm_provider("claude", {})
-    assert c.model.startswith("anthropic/")
+    assert c.model_id.startswith("claude")
 
 
 def test_resolve_unknown_raises() -> None:

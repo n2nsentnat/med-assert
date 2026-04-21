@@ -9,6 +9,8 @@ for human review, not automatic deletion.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 import unicodedata
 from collections import defaultdict
@@ -32,6 +34,9 @@ _NY_HEAD_CHARS = 40
 _EDGE_SAME_DOI = "same_doi"
 _EDGE_SAME_TITLE_YEAR = "same_title_year"
 _EDGE_FUZZY = "fuzzy"
+_EDGE_SPECTER_FAISS = "specter_faiss"
+
+logger = logging.getLogger(__name__)
 
 
 class DuplicateCluster(BaseModel):
@@ -51,7 +56,7 @@ class DedupReport(BaseModel):
     articles_in_some_duplicate_group: int
     methodology: str
     clusters: list[DuplicateCluster]
-    stats: dict[str, int | float] = Field(default_factory=dict)
+    stats: dict[str, int | float | str] = Field(default_factory=dict)
 
 
 def format_dedup_markdown(report: DedupReport) -> str:
@@ -62,6 +67,7 @@ def format_dedup_markdown(report: DedupReport) -> str:
         f"- Duplicate groups (size >= 2): **{report.duplicate_group_count}**",
         f"- Articles appearing in some group: **{report.articles_in_some_duplicate_group}**",
         f"- Fuzzy pair comparisons: **{report.stats.get('fuzzy_pairs_compared', 0)}**",
+        f"- SPECTER 2 + FAISS edges added: **{report.stats.get('specter_pairs_added', 0)}**",
         "",
         "## Definition (summary)",
         "",
@@ -208,6 +214,7 @@ def _cluster_metadata(
         _EDGE_SAME_DOI: "same_doi",
         _EDGE_SAME_TITLE_YEAR: "same_normalized_title_and_year",
         _EDGE_FUZZY: "fuzzy_title",
+        _EDGE_SPECTER_FAISS: "specter2_embedding_cosine",
     }
     for i, j, k in sorted(
         edges_in_cluster,
@@ -230,7 +237,11 @@ def _cluster_metadata(
 
     if len(kinds) > 1:
         primary = "mixed_evidence"
-        conf: Literal["high", "medium"] = "medium" if _EDGE_FUZZY in kinds else "high"
+        conf: Literal["high", "medium"] = (
+            "medium"
+            if (_EDGE_FUZZY in kinds or _EDGE_SPECTER_FAISS in kinds)
+            else "high"
+        )
         detail = "Cluster contains more than one link type; use edge_evidence for ground truth."
     elif _EDGE_SAME_DOI in kinds:
         primary = "same_doi"
@@ -240,6 +251,13 @@ def _cluster_metadata(
         primary = "same_normalized_title_and_year"
         conf = "high"
         detail = "Identical normalized title and same non-null publication year."
+    elif _EDGE_SPECTER_FAISS in kinds:
+        primary = "specter_embedding_similarity"
+        conf = "medium"
+        detail = (
+            "High cosine similarity between SPECTER 2 paper embeddings "
+            "(FAISS inner-product search on L2-normalized vectors)."
+        )
     else:
         primary = "fuzzy_title_and_or_abstract"
         conf = "medium"
@@ -248,7 +266,38 @@ def _cluster_metadata(
     return primary, conf, detail, evidence, trans_note
 
 
-def build_duplicate_report(collection: CollectionOutput) -> DedupReport:
+def _apply_specter_faiss_edges(
+    articles: list[Article],
+    uf: _UnionFind,
+    edges: list[tuple[int, int, str]],
+    *,
+    specter_model: str | None,
+) -> int:
+    from article_miner.infrastructure.dedup.specter_faiss import (
+        DEFAULT_SPECTER_MODEL,
+        compute_specter_embeddings,
+        faiss_cosine_pairs,
+    )
+
+    mid = specter_model or DEFAULT_SPECTER_MODEL
+    emb, _dim = compute_specter_embeddings(articles, model_id=mid)
+    pairs = faiss_cosine_pairs(emb)
+    added = 0
+    for i, j, _sim in pairs:
+        if uf.find(i) == uf.find(j):
+            continue
+        _append_edge(edges, i, j, _EDGE_SPECTER_FAISS)
+        uf.union(i, j)
+        added += 1
+    return added
+
+
+def build_duplicate_report(
+    collection: CollectionOutput,
+    *,
+    enable_specter_faiss: bool | None = None,
+    specter_model: str | None = None,
+) -> DedupReport:
     articles = collection.articles
     n = len(articles)
     uf = _UnionFind.new(n)
@@ -343,6 +392,26 @@ def build_duplicate_report(collection: CollectionOutput) -> DedupReport:
                     _append_edge(edges, i, j, _EDGE_FUZZY)
                     uf.union(i, j)
 
+    if enable_specter_faiss is None:
+        enable_specter_faiss = os.environ.get(
+            "ARTICLE_MINER_SPECTER", "0"
+        ).lower() in ("1", "true", "yes")
+
+    specter_pairs_added = 0
+    specter_model_used = ""
+    if enable_specter_faiss and n >= 2:
+        try:
+            from article_miner.infrastructure.dedup.specter_faiss import (
+                DEFAULT_SPECTER_MODEL,
+            )
+
+            specter_model_used = specter_model or DEFAULT_SPECTER_MODEL
+            specter_pairs_added = _apply_specter_faiss_edges(
+                articles, uf, edges, specter_model=specter_model
+            )
+        except Exception as exc:
+            logger.warning("SPECTER 2 / FAISS deduplication skipped: %s", exc)
+
     comp: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
         comp[uf.find(i)].append(i)
@@ -388,8 +457,19 @@ def build_duplicate_report(collection: CollectionOutput) -> DedupReport:
         "Medium: fuzzy title (ratio>=90 or token_sort>=92) within blocks; missing-year rows use "
         "prefix + length band + title head. "
         f"If both abstracts exist, token_sort>={ABSTRACT_TOKEN_SORT_MIN} on abstract text. "
-        "Clusters list pairwise edge_evidence; transitive union-find can connect fuzzy-only chains."
+        "Optional second layer: SPECTER 2 embeddings (sentence-transformers) with FAISS "
+        "inner-product search on L2-normalized vectors (cosine), controlled by "
+        "ARTICLE_MINER_SPECTER / --specter. "
+        "Clusters list pairwise edge_evidence; transitive union-find can connect chains."
     )
+
+    stats: dict[str, int | float | str] = {
+        "fuzzy_pairs_compared": fuzzy_pairs_compared,
+        "blocks_used": len(block),
+        "specter_pairs_added": specter_pairs_added,
+    }
+    if specter_model_used:
+        stats["specter_model"] = specter_model_used
 
     return DedupReport(
         source_article_count=n,
@@ -397,7 +477,7 @@ def build_duplicate_report(collection: CollectionOutput) -> DedupReport:
         articles_in_some_duplicate_group=in_group,
         methodology=methodology,
         clusters=clusters,
-        stats={"fuzzy_pairs_compared": fuzzy_pairs_compared, "blocks_used": len(block)},
+        stats=stats,
     )
 
 

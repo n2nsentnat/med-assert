@@ -1,1 +1,1 @@
-"""Infrastructure namespace for dedup tool (currently no external adapters)."""
+"""Dedup infrastructure (embedding / ANN helpers)."""

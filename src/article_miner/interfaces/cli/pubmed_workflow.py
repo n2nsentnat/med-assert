@@ -21,6 +21,10 @@ from article_miner.application.insights.llm_provider_registry import (
     expected_api_key_env_name,
     resolve_insight_llm_provider,
 )
+from article_miner.infrastructure.insights.chat_model_factory import (
+    build_chat_model,
+    insight_display_name,
+)
 from article_miner.application.insights.report import (
     default_insight_report_path,
     write_insight_report_md,
@@ -70,7 +74,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--insight-model",
         default="gpt-4o-mini",
-        help="LiteLLM model id for insight classification (default: gpt-4o-mini).",
+        help="LangChain / provider model id for insight classification (default: gpt-4o-mini).",
     )
     p.add_argument(
         "--insight-llm",
@@ -181,10 +185,8 @@ def main(argv: list[str] | None = None) -> int:
             except KeyError:
                 print(f"error: unknown --insight-llm {provider!r}", file=sys.stderr)
                 return 2
-            insight_model = resolution.model
-            extra_kwargs = {
-                k: str(v) for k, v in resolution.extra_completion_kwargs.items()
-            }
+            chat_model = build_chat_model(resolution)
+            display_name = insight_display_name(resolution)
 
             warn_var = expected_api_key_env_name(provider)
             if warn_var and not os.environ.get(warn_var):
@@ -192,12 +194,13 @@ def main(argv: list[str] | None = None) -> int:
 
             insights_path = Path(insights_path).expanduser().resolve()
             insight_config = InsightJobConfig(
-                model=insight_model,
+                model=display_name,
+                chat_model=chat_model,
+                audit_chat_model=chat_model,
                 confidence_threshold=args.insight_confidence,
                 concurrency=max(1, args.insight_concurrency),
                 enable_audit=not args.insight_no_audit,
                 cache_path=args.insight_cache,
-                extra_completion_kwargs=extra_kwargs,
             )
             insight_result = asyncio.run(run_insight_job(result, insight_config))
             insights_path.parent.mkdir(parents=True, exist_ok=True)

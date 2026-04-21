@@ -9,6 +9,8 @@ docker build -t article-miner:latest .
 docker run --rm -p 8000:8000 --env-file .env article-miner:latest
 ```
 
+The image installs optional **`[specter]`** extras (SPECTER 2 + PyTorch) so API/CLI dedup can use `--specter` / `enable_specter_faiss` in containers.
+
 Use `.env` from the project root (see `.env.example`). The API listens on `0.0.0.0:8000`.
 
 ## Docker Compose
