@@ -16,6 +16,10 @@ from article_miner.application.insights.llm_provider_registry import (
     registered_insight_providers,
     resolve_insight_llm_provider,
 )
+from article_miner.infrastructure.insights.chat_model_factory import (
+    build_chat_model,
+    insight_display_name,
+)
 from article_miner.application.insights.report import (
     default_insight_report_path,
     write_insight_report_md,
@@ -84,20 +88,20 @@ def main(
             level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
         )
     provider = (llm or "").strip().lower()
-    extra_kwargs: dict[str, str] = {}
     if provider:
         try:
             resolution = resolve_insight_llm_provider(provider, os.environ)
         except KeyError:
             allowed = ", ".join(registered_insight_providers())
             raise typer.BadParameter(f"--llm must be one of: {allowed}") from None
-        selected_model = resolution.model
-        extra_kwargs = {
-            k: str(v) for k, v in resolution.extra_completion_kwargs.items()
-        }
+    else:
+        resolution = resolve_insight_llm_provider("openai", os.environ)
+
+    chat_model = build_chat_model(resolution)
+    display_name = insight_display_name(resolution)
 
     key_var = expected_api_key_env_name(provider) if provider else None
-    if key_var and not os.environ.get(key_var) and not os.environ.get("LITELLM_LOG"):
+    if key_var and not os.environ.get(key_var) and not os.environ.get("LANGCHAIN_TRACING_V2"):
         typer.secho(
             f"Set {key_var} for the selected provider.",
             err=True,
@@ -108,7 +112,9 @@ def main(
     collection = CollectionOutput.model_validate_json(text)
 
     config = InsightJobConfig(
-        model=selected_model,
+        model=display_name,
+        chat_model=chat_model,
+        audit_chat_model=chat_model,
         confidence_threshold=confidence,
         concurrency=concurrency,
         enable_audit=not no_audit,
@@ -116,7 +122,6 @@ def main(
         incremental_jsonl_path=incremental_jsonl,
         progress=not no_progress,
         progress_every=progress_every,
-        extra_completion_kwargs=extra_kwargs,
     )
 
     if incremental_jsonl is not None:

@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from article_miner.domain.collect.models import Article, CollectionOutput
 from article_miner.domain.insights.models import (
@@ -53,8 +53,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class InsightJobConfig:
+    """``model`` is a display id for JSON output; LLM calls use ``chat_model``."""
+
     model: str
-    audit_model: str | None = None
+    chat_model: BaseChatModel
+    audit_chat_model: BaseChatModel | None = None
     confidence_threshold: float = 0.5
     concurrency: int = 8
     max_retries: int = 3
@@ -65,7 +68,6 @@ class InsightJobConfig:
     progress_every: int = 1
     #: If set, warn when title+abstract (canonical haystack) exceeds this length.
     max_canonical_chars: int | None = 12_000
-    extra_completion_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 class InsightClassificationJob:
@@ -73,7 +75,7 @@ class InsightClassificationJob:
 
     def __init__(self, config: InsightJobConfig) -> None:
         self._config = config
-        self._audit_model = config.audit_model or config.model
+        self._audit_chat = config.audit_chat_model or config.chat_model
         self._cache = InsightCache(config.cache_path)
 
     async def run(self, collection: CollectionOutput) -> InsightJobResult:
@@ -199,13 +201,14 @@ class InsightClassificationJob:
                 return row
             logger.warning("Cache parse failed for PMID %s", article.pmid)
 
-        kw = self._config.extra_completion_kwargs
         last_err: str | None = None
         raw_text = ""
         for attempt in range(self._config.max_retries):
             try:
                 raw_text, st = await extract_insight_json(
-                    self._config.model, article, **kw
+                    self._config.chat_model,
+                    article,
+                    display_name=self._config.model,
                 )
                 totals["input_tokens"] += st.input_tokens
                 totals["output_tokens"] += st.output_tokens
@@ -249,7 +252,11 @@ class InsightClassificationJob:
 
         if not ext:
             try:
-                repaired, st = await repair_json(self._config.model, raw_text, **kw)
+                repaired, st = await repair_json(
+                    self._config.chat_model,
+                    raw_text,
+                    display_name=self._config.model,
+                )
                 totals["input_tokens"] += st.input_tokens
                 totals["output_tokens"] += st.output_tokens
                 ext, err = parse_extraction_json(repaired)
@@ -387,10 +394,10 @@ class InsightClassificationJob:
         if run_audit:
             try:
                 audit_res, st = await audit_classification(
-                    self._audit_model,
+                    self._audit_chat,
                     article,
                     merge_dict_for_audit(ext),
-                    **self._config.extra_completion_kwargs,
+                    display_name=self._config.model,
                 )
                 totals["input_tokens"] += st.input_tokens
                 totals["output_tokens"] += st.output_tokens

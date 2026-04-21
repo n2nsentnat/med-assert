@@ -34,6 +34,16 @@ def main(
         "-m",
         help="Write human-readable Markdown summary for reviewers.",
     ),
+    specter: bool = typer.Option(
+        False,
+        "--specter",
+        help="Enable SPECTER 2 embeddings + FAISS similarity layer (CPU; downloads model).",
+    ),
+    specter_model: str | None = typer.Option(
+        None,
+        "--specter-model",
+        help="Hugging Face embedding model (default allenai/specter2_base).",
+    ),
 ) -> None:
     """Identify probable duplicate articles (same work, different PMIDs or versions)."""
     try:
@@ -45,7 +55,11 @@ def main(
         typer.secho(str(exc), err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc
 
-    report = build_duplicate_report(collection)
+    report = build_duplicate_report(
+        collection,
+        enable_specter_faiss=specter,
+        specter_model=specter_model,
+    )
     text = report.model_dump_json(indent=2)
 
     if output_json is not None:

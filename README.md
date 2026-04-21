@@ -2,7 +2,7 @@
 #### LLM-Powered Medical Assertion Extraction with Deterministic Trust Gates.
 MedAssert is an evidence-grounded extraction engine that transforms unstructured biomedical abstracts into verified clinical assertions. Unlike standard LLM summarizers, MedAssert enforces a "grounding-first" policy, requiring verbatim evidence spans for every finding. It utilizes a three-pass validation pipeline—LLM extraction, deterministic grounding checks, and automated risk triage—to categorize research findings by directionality, statistical significance, and clinical meaningfulness.
 
-This Command-line tool searches [PubMed](https://pubmed.ncbi.nlm.nih.gov/) via the [NCBI E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25500/) (`esearch` + `efetch`), applies rate limiting and retries, writes **flat, validated JSON** and ultimately produces structured clinical interpretations including:
+This command-line tool searches [PubMed](https://pubmed.ncbi.nlm.nih.gov/) via the [NCBI E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25500/) (`esearch` + `efetch`), applies rate limiting and retries, writes flat, validated JSON, detects probable duplicates with **rule-based matching** and an optional **SPECTER 2 embedding + FAISS** similarity layer (see [Finding probable duplicates](#finding-probable-duplicates)), and ultimately produces structured clinical interpretations including:
 
     Finding Direction: (Positive, Negative, Neutral, Mixed, Unclear)
 
@@ -158,6 +158,10 @@ uv run find-pubmed-dupes results.json -o dupes.json -m dupes.md
 | `input_json` (positional) | Collection JSON produced by `collect-pubmed` |
 | `-o`, `--out-json` | Output path for full dedup report JSON |
 | `-m`, `--markdown` | Output path for reviewer-friendly Markdown summary |
+| `--specter` | Add a **SPECTER 2** embedding + **FAISS** cosine-similarity layer after rule-based dedup (requires `uv sync --extra specter` or `pip install 'article-miner[specter]'`) |
+| `--specter-model` | Hugging Face model id (default `allenai/specter2_base`) |
+
+Environment: set `ARTICLE_MINER_SPECTER=1` to enable the same layer by default in programmatic `build_duplicate_report()` calls.
 
 ##### Dedup output
 
@@ -188,7 +192,7 @@ uv run classify-insights results.json \
 |--------|---------|
 | `input_json` (positional) | Collection JSON produced by `collect-pubmed` |
 | `-o`, `--output` | Output path (`.json` or `.jsonl`) |
-| `-m`, `--model` | Optional explicit LiteLLM model override |
+| `-m`, `--model` | Optional explicit model override (LangChain providers) |
 | `--llm` | Provider shortcut (`openai`, `gemini`, `claude`, `ollama`) |
 | `-c`, `--concurrency` | Concurrent insight workers (default: 8) |
 | `--no-audit` | Disable optional audit pass |
@@ -275,7 +279,7 @@ After you have a `CollectionOutput` JSON from `collect-pubmed`, the pipeline run
 - **Evidence**: the model must return verbatim **evidence spans** from the title/abstract; the system checks that each span occurs in a canonical concatenation of title + abstract.
 - **Trust**: `PerArticleStatus` is split into `auto_accepted` (highest trust), `validated_but_flagged` (schema/grounding valid with caveats, including some prefilter-routed minimal outputs), and `needs_human_review` (not trustworthy enough to auto-accept), plus `invalid_output` / `api_failure` / `skipped_prefilter`.
 - **Confidence policy**: model-reported confidence is treated as a **secondary triage signal** (recorded in reasons), not a primary trust gate. Primary gates are schema validity, grounding, deterministic contradiction flags, and high-risk labels (`mixed`, `meaningful`).
-- **Providers**: set one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` (LiteLLM). You can override model explicitly with `--model`, or set provider defaults in `.env` via `INSIGHT_MODEL_OPENAI`, `INSIGHT_MODEL_CLAUDE`, `INSIGHT_MODEL_GEMINI` (e.g. `gpt-4o-mini`, `anthropic/claude-3-5-sonnet-20241022`, `gemini/gemini-2.0-flash`).
+- **Providers**: set one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` (insights use **LangChain** chat models). You can override the model explicitly with `--model`, or set provider defaults in `.env` via `INSIGHT_MODEL_OPENAI`, `INSIGHT_MODEL_CLAUDE`, `INSIGHT_MODEL_GEMINI` (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-20241022`, `gemini-2.0-flash`).
   For local Ollama, use `--llm ollama` (or `--insight-llm ollama` in workflow) with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`.
 - **Caching**: optional `--cache /path/to/cache.sqlite` keys on PMID + input hash + prompt version + model.
 - **Incremental persistence**: optional `--incremental-jsonl /path/file.jsonl` appends one `PerArticleInsightResult` per completed article (raw LLM text, extraction/validation/audit if present, final status), so long jobs are recoverable and auditable.
@@ -304,6 +308,7 @@ Two records are considered linked when one of these rules matches:
 1. **Same normalized DOI** (highest confidence).
 2. **Same normalized title + same non-null publication year**.
 3. **High fuzzy title similarity** (with abstract similarity checks when both abstracts are present).
+4. **Optional:** **SPECTER 2** document embeddings (sentence-transformers) and **FAISS** neighbor search on cosine similarity—enabled with `--specter` or `ARTICLE_MINER_SPECTER=1`, and requiring the `[specter]` optional install.
 
 Then links are merged transitively into clusters (connected components). This means a cluster may contain mixed link evidence (for example DOI + fuzzy links), so reviewer interpretation should use pairwise `edge_evidence`, not only the cluster label.
 
@@ -343,8 +348,9 @@ Layers follow **Clean / Onion** style dependency direction (inward-only):
 ### Tool-specific module layout
 
 - `article_miner/infrastructure/collect/`: PubMed collection adapters (HTTP client, gateway, XML parser, models, rate limiting).
-- `article_miner/application/dedup/`: duplicate detection workflow/service.
-- `article_miner/infrastructure/insights/`: LLM prompts, extraction adapter, deterministic validation, cache/prefilter.
+- `article_miner/application/dedup/`: duplicate detection workflow/service (rule-based + optional SPECTER 2 / FAISS).
+- `article_miner/infrastructure/dedup/`: embedding + FAISS helpers for the optional vector layer.
+- `article_miner/infrastructure/insights/`: **LangChain** chat models, prompts, extraction, deterministic validation, cache/prefilter; **LangGraph** placeholder graph for future multi-step orchestration.
 - `article_miner/common/`: shared cross-tool utilities (for example, project path helpers used by CLIs).
 
 <a id="live-ncbi-smoke-test-optional"></a>

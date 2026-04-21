@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -54,30 +55,34 @@ def test_collect_mocked(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     assert data["articles"][0]["title"] == "Hello"
 
 
-def test_dedup(client: TestClient) -> None:
-    body = {
-        "collection": {
-            "query": "q",
-            "total_match_count": 2,
-            "requested_count": 2,
-            "retrieved_count": 2,
-            "articles": [
-                {
-                    "pmid": "1",
-                    "title": "Same title",
-                    "doi": "10.1234/x",
-                    "publication_year": 2020,
-                },
-                {
-                    "pmid": "2",
-                    "title": "Same title",
-                    "doi": "10.1234/x",
-                    "publication_year": 2020,
-                },
-            ],
-            "warnings": [],
-        }
+def _sample_collection_dict() -> dict:
+    return {
+        "query": "q",
+        "total_match_count": 2,
+        "requested_count": 2,
+        "retrieved_count": 2,
+        "articles": [
+            {
+                "pmid": "1",
+                "title": "Same title",
+                "doi": "10.1234/x",
+                "publication_year": 2020,
+            },
+            {
+                "pmid": "2",
+                "title": "Same title",
+                "doi": "10.1234/x",
+                "publication_year": 2020,
+            },
+        ],
+        "warnings": [],
     }
+
+
+def test_dedup(client: TestClient, tmp_path: Path) -> None:
+    coll = tmp_path / "collection.json"
+    coll.write_text(json.dumps(_sample_collection_dict()), encoding="utf-8")
+    body = {"collection_path": str(coll)}
     r = client.post("/dedup", json=body)
     assert r.status_code == 200, r.text
     rep = r.json()["report"]
@@ -89,6 +94,20 @@ def test_dedup(client: TestClient) -> None:
     assert r2.status_code == 200
     assert r2.json()["markdown"] is not None
     assert "Probable duplicate" in r2.json()["markdown"]
+
+
+def test_dedup_collection_missing(client: TestClient, tmp_path: Path) -> None:
+    missing = tmp_path / "nope.json"
+    r = client.post("/dedup", json={"collection_path": str(missing)})
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"].lower()
+
+
+def test_dedup_collection_invalid_json(client: TestClient, tmp_path: Path) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    r = client.post("/dedup", json={"collection_path": str(bad)})
+    assert r.status_code == 422
 
 
 def test_collect_file_mode(
@@ -126,29 +145,11 @@ def test_collect_file_mode(
 
 
 def test_dedup_file_mode(client: TestClient, tmp_path: Path) -> None:
+    coll = tmp_path / "collection.json"
+    coll.write_text(json.dumps(_sample_collection_dict()), encoding="utf-8")
     out = tmp_path / "d.json"
     body = {
-        "collection": {
-            "query": "q",
-            "total_match_count": 2,
-            "requested_count": 2,
-            "retrieved_count": 2,
-            "articles": [
-                {
-                    "pmid": "1",
-                    "title": "Same title",
-                    "doi": "10.1234/x",
-                    "publication_year": 2020,
-                },
-                {
-                    "pmid": "2",
-                    "title": "Same title",
-                    "doi": "10.1234/x",
-                    "publication_year": 2020,
-                },
-            ],
-            "warnings": [],
-        },
+        "collection_path": str(coll),
         "output_format": "file",
         "output_path": str(out),
         "include_markdown": True,
@@ -162,7 +163,9 @@ def test_dedup_file_mode(client: TestClient, tmp_path: Path) -> None:
     assert "Probable duplicate" in md_path.read_text(encoding="utf-8")
 
 
-def test_insights_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insights_mocked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     async def fake_job(*_a, **_k):
         return InsightJobResult(
             prompt_version="p",
@@ -178,22 +181,35 @@ def test_insights_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(api_app_module, "run_insight_job", fake_job)
+    coll = tmp_path / "collection.json"
+    coll.write_text(
+        json.dumps(
+            {
+                "query": "q",
+                "total_match_count": 1,
+                "requested_count": 1,
+                "retrieved_count": 1,
+                "articles": [{"pmid": "1", "title": "T"}],
+                "warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     with TestClient(app) as client:
-        collection = {
-            "query": "q",
-            "total_match_count": 1,
-            "requested_count": 1,
-            "retrieved_count": 1,
-            "articles": [{"pmid": "1", "title": "T"}],
-            "warnings": [],
-        }
         r = client.post(
             "/insights",
-            json={"collection": collection, "model": "gpt-4o-mini"},
+            json={"collection_path": str(coll), "model": "gpt-4o-mini"},
         )
         assert r.status_code == 200, r.text
         assert r.json()["model"] == "m"
         assert r.json()["articles"][0]["pmid"] == "1"
+
+
+def test_insights_collection_missing(client: TestClient, tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    r = client.post("/insights", json={"collection_path": str(missing)})
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"].lower()
 
 
 def test_insights_file_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -213,19 +229,25 @@ def test_insights_file_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     monkeypatch.setattr(api_app_module, "run_insight_job", fake_job)
     out = tmp_path / "ins.json"
-    collection = {
-        "query": "q",
-        "total_match_count": 1,
-        "requested_count": 1,
-        "retrieved_count": 1,
-        "articles": [{"pmid": "1", "title": "T"}],
-        "warnings": [],
-    }
+    coll = tmp_path / "collection.json"
+    coll.write_text(
+        json.dumps(
+            {
+                "query": "q",
+                "total_match_count": 1,
+                "requested_count": 1,
+                "retrieved_count": 1,
+                "articles": [{"pmid": "1", "title": "T"}],
+                "warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     with TestClient(app) as client:
         r = client.post(
             "/insights",
             json={
-                "collection": collection,
+                "collection_path": str(coll),
                 "model": "gpt-4o-mini",
                 "output_format": "file",
                 "output_path": str(out),

@@ -1,7 +1,7 @@
 [project]
 name = "article-miner"
 version = "0.1.0"
-description = "CLI tool to search PubMed and export structured article JSON via NCBI E-utilities"
+description = "PubMed collection, duplicate detection (rule-based + optional SPECTER 2 embeddings with FAISS), and LLM insight classification via NCBI E-utilities and LangChain"
 readme = "README.md"
 authors = [
     { name = "vijayaraja", email = "n2nsent@gmail.com" }
@@ -12,7 +12,13 @@ dependencies = [
     "fastapi>=0.115.0",
     "httpx>=0.28.1",
     "isort>=8.0.1",
-    "litellm>=1.63.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-openai>=0.3.0",
+    "langgraph>=0.2.0",
+    "faiss-cpu>=1.9.0",
     "lxml>=6.0.2",
     "mypy>=1.20.1",
     "pydantic>=2.12.5",
@@ -34,6 +40,13 @@ dev = [
     "pytest>=9.0.3",
     "pandas>=2.2.0",
     "scikit-learn>=1.5.0",
+]
+
+# SPECTER 2 + FAISS dedup layer (sentence-transformers + PyTorch; large download).
+[project.optional-dependencies]
+specter = [
+    "sentence-transformers>=3.0.0",
+    "torch>=2.4.0",
 ]
 
 [tool.pytest.ini_options]
