@@ -8,15 +8,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from article_miner.application.collect.service import CollectArticlesService
-from article_miner.domain.collect.models import Article, CollectionOutput
-from article_miner.domain.insight import (
+from med_assert.application.collect.service import CollectArticlesService
+from med_assert.domain.collect.models import Article, CollectionOutput
+from med_assert.domain.insight import (
     InsightJobResult,
     PerArticleInsightResult,
     PerArticleStatus,
 )
-import article_miner.interfaces.api.http_app as api_app_module
-from article_miner.interfaces.api.http_app import app
+import med_assert.interfaces.api.http_app as api_app_module
+from med_assert.interfaces.api.http_app import app
 
 
 @pytest.fixture

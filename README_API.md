@@ -1,4 +1,4 @@
-# article-miner HTTP API
+# med-assert HTTP API
 
 FastAPI service exposing **collect** (PubMed), **dedup** (duplicate groups, including optional **SPECTER 2** embeddings with **FAISS** similarity search), and **insights** (LLM classification via LangChain). Request and response models are defined with Pydantic; interactive docs are served by FastAPI.
 
@@ -7,7 +7,7 @@ FastAPI service exposing **collect** (PubMed), **dedup** (duplicate groups, incl
 From the project root, after `uv sync`:
 
 ```bash
-uv run article-miner-api
+uv run med-assert-api
 ```
 
 This starts Uvicorn on `http://127.0.0.1:8000` by default.
@@ -15,10 +15,10 @@ This starts Uvicorn on `http://127.0.0.1:8000` by default.
 Alternatively, invoke Uvicorn directly (useful for extra flags):
 
 ```bash
-uv run uvicorn article_miner.interfaces.api.app:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn med_assert.interfaces.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-(`article_miner.interfaces.api.http_app:app` is equivalent; the `app` module is a thin re-export.)
+(`med_assert.interfaces.api.http_app:app` is equivalent; the `app` module is a thin re-export.)
 
 ## Interactive documentation
 
@@ -50,9 +50,9 @@ Every mutating endpoint accepts:
 
 | Endpoint | Default file |
 |----------|----------------|
-| `POST /collect` | `article_miner_output/collect.json` |
-| `POST /dedup` | Reads **input** from `collection_path` (see below). Writes `article_miner_output/dedup.json` by default (optional sibling `dedup.md` when `include_markdown` is true) |
-| `POST /insights` | Reads **input** from `collection_path`. Writes `article_miner_output/insights.json` or `insights.jsonl` by default (see `insight_file_format`) |
+| `POST /collect` | `med_assert_output/collect.json` |
+| `POST /dedup` | Reads **input** from `collection_path` (see below). Writes `med_assert_output/dedup.json` by default (optional sibling `dedup.md` when `include_markdown` is true) |
+| `POST /insights` | Reads **input** from `collection_path`. Writes `med_assert_output/insights.json` or `insights.jsonl` by default (see `insight_file_format`) |
 
 **File-mode response** (`output_format: "file"`):
 
@@ -97,7 +97,7 @@ Search PubMed and return structured article metadata as JSON (same shape as the 
 | `count` | integer | `100` | Max articles (≥ 1) |
 | `api_key` | string \| null | `null` | NCBI API key |
 | `email` | string \| null | `null` | Contact email for NCBI |
-| `tool` | string | `"article_miner"` | Tool name sent to NCBI |
+| `tool` | string | `"med_assert"` | Tool name sent to NCBI |
 | `output_format` | string | `"json"` | `json` or `file` |
 | `output_path` | string \| null | `null` | Server path for `collect.json` when `output_format` is `file` |
 
@@ -140,7 +140,7 @@ Build a duplicate-group report from a **collection JSON file already on the serv
 |-------|------|---------|-------------|
 | `collection_path` | string | required | Path on the **server** to a `CollectionOutput` JSON file (e.g. path returned as `paths.collection_json` from `POST /collect` with `output_format=file`) |
 | `include_markdown` | boolean | `false` | Include Markdown (in JSON response or as a file when using `file` mode) |
-| `enable_specter_faiss` | boolean | `false` | Optional SPECTER 2 embeddings + FAISS layer (requires `pip install 'article-miner[specter]'` on the server) |
+| `enable_specter_faiss` | boolean | `false` | Optional SPECTER 2 embeddings + FAISS layer (requires `pip install 'med-assert[specter]'` on the server) |
 | `specter_model` | string \| null | `null` | Override HF model id (default `allenai/specter2_base`) |
 | `output_format` | string | `"json"` | `json` or `file` |
 | `output_path` | string \| null | `null` | Server path for dedup JSON when `output_format` is `file` |

@@ -7,13 +7,13 @@ from typing import Any
 
 import pytest
 
-from article_miner.domain.errors import MalformedResponseError
-from article_miner.infrastructure.collect.ncbi_client_config import (
+from med_assert.domain.errors import MalformedResponseError
+from med_assert.infrastructure.collect.ncbi_client_config import (
     EFETCH_URL,
     ESEARCH_URL,
     NcbiClientConfig,
 )
-from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
+from med_assert.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
 
 
 class FakeHttp:

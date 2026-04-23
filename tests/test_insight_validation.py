@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from article_miner.domain.collect.models import Article
-from article_miner.domain.insights.models import (
+from med_assert.domain.collect.models import Article
+from med_assert.domain.insights.models import (
     ClinicalFieldInsight,
     FieldInsightBlock,
     LlmInsightExtraction,
 )
-from article_miner.infrastructure.insights.canonical_text import (
+from med_assert.infrastructure.insights.canonical_text import (
     build_canonical_text,
     span_in_haystack,
 )
-from article_miner.infrastructure.insights.insight_validation import (
+from med_assert.infrastructure.insights.insight_validation import (
     grounding_checks,
     parse_extraction_json,
     run_pass2_validation,
     try_local_json_repair,
 )
-from article_miner.infrastructure.insights.semantic_rules import run_semantic_rules
+from med_assert.infrastructure.insights.semantic_rules import run_semantic_rules
 
 
 def _article() -> Article:
@@ -126,7 +126,7 @@ def test_parse_extraction_json_roundtrip() -> None:
 
 
 def test_prefilter_skips_short() -> None:
-    from article_miner.infrastructure.insights.prefilter import (
+    from med_assert.infrastructure.insights.prefilter import (
         PrefilterAction,
         prefilter_article,
     )

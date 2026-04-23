@@ -3,10 +3,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: article-miner-api
-  namespace: article-miner
+  name: med-assert-api
+  namespace: med-assert
   labels:
-    app.kubernetes.io/name: article-miner
+    app.kubernetes.io/name: med-assert
     app.kubernetes.io/component: api
   annotations:
     # nginx ingress example — adjust for your controller
@@ -14,17 +14,17 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: article-miner.example.com
+    - host: med-assert.example.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: article-miner-api
+                name: med-assert-api
                 port:
                   name: http
   # tls:
   #   - hosts:
-  #       - article-miner.example.com
-  #     secretName: article-miner-tls
+  #       - med-assert.example.com
+  #     secretName: med-assert-tls

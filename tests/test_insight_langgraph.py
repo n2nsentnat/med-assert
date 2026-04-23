@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from article_miner.application.insights.insight_langgraph import (
+from med_assert.application.insights.insight_langgraph import (
     compile_insight_placeholder_graph,
 )
 

@@ -6,20 +6,20 @@ import os
 
 import pytest
 
-from article_miner.application.collect.service import CollectArticlesService
-from article_miner.infrastructure.collect.ncbi_client_config import NcbiClientConfig
-from article_miner.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
-from article_miner.infrastructure.collect.rate_limiter import RateLimiter
-from article_miner.infrastructure.collect.resilient_http import ResilientHttpClient
+from med_assert.application.collect.service import CollectArticlesService
+from med_assert.infrastructure.collect.ncbi_client_config import NcbiClientConfig
+from med_assert.infrastructure.collect.pubmed_gateway import EntrezPubMedGateway
+from med_assert.infrastructure.collect.rate_limiter import RateLimiter
+from med_assert.infrastructure.collect.resilient_http import ResilientHttpClient
 
 
 def _live_enabled() -> bool:
-    return os.environ.get("ARTICLE_MINER_LIVE_NCBI", "").strip() == "1"
+    return os.environ.get("MED_ASSERT_LIVE_NCBI", "").strip() == "1"
 
 
 skip_if_no_live = pytest.mark.skipif(
     not _live_enabled(),
-    reason="Set ARTICLE_MINER_LIVE_NCBI=1 to run live NCBI tests (requires network).",
+    reason="Set MED_ASSERT_LIVE_NCBI=1 to run live NCBI tests (requires network).",
 )
 
 

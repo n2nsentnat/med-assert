@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from article_miner.application.insights.llm_provider_registry import (
+from med_assert.application.insights.llm_provider_registry import (
     expected_api_key_env_name,
     normalize_insight_provider,
     registered_insight_providers,

@@ -1,5 +1,5 @@
 [project]
-name = "article-miner"
+name = "med-assert"
 version = "0.1.0"
 description = "PubMed collection, duplicate detection (rule-based + optional SPECTER 2 embeddings with FAISS), and LLM insight classification via NCBI E-utilities and LangChain"
 readme = "README.md"
@@ -29,11 +29,11 @@ dependencies = [
 ]
 
 [project.scripts]
-article-miner-api = "article_miner.interfaces.api.app:run"
-collect-pubmed = "article_miner.cli.collect.app:run"
-find-pubmed-dupes = "article_miner.cli.dedup.app:run"
-pubmed-workflow = "article_miner.cli.pubmed_workflow:run"
-classify-insights = "article_miner.cli.insights.app:run"
+med-assert-api = "med_assert.interfaces.api.app:run"
+collect-pubmed = "med_assert.cli.collect.app:run"
+find-pubmed-dupes = "med_assert.cli.dedup.app:run"
+pubmed-workflow = "med_assert.cli.pubmed_workflow:run"
+classify-insights = "med_assert.cli.insights.app:run"
 
 [dependency-groups]
 dev = [
@@ -53,7 +53,7 @@ specter = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "live_ncbi: calls real NCBI E-utilities; enable with ARTICLE_MINER_LIVE_NCBI=1",
+    "live_ncbi: calls real NCBI E-utilities; enable with MED_ASSERT_LIVE_NCBI=1",
 ]
 
 [tool.mypy]

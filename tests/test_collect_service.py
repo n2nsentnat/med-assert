@@ -1,7 +1,7 @@
 """Application layer tests."""
 
-from article_miner.application.collect.service import CollectArticlesService
-from article_miner.domain.collect.models import Article, CollectionOutput
+from med_assert.application.collect.service import CollectArticlesService
+from med_assert.domain.collect.models import Article, CollectionOutput
 
 
 class FakeGateway:

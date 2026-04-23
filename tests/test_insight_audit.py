@@ -1,6 +1,6 @@
 """Tests for structured audit parsing."""
 
-from article_miner.infrastructure.insights.llm_extract import parse_audit_json
+from med_assert.infrastructure.insights.llm_extract import parse_audit_json
 
 
 def test_parse_audit_json_structured_payload() -> None:

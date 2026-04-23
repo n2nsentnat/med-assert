@@ -21,13 +21,13 @@ from __future__ import annotations
 
 import pytest
 
-from article_miner.application.dedup.service import (
+from med_assert.application.dedup.service import (
     ABSTRACT_TOKEN_SORT_MIN,
     build_duplicate_report,
     normalize_doi,
     normalize_title,
 )
-from article_miner.domain.collect.models import Article, CollectionOutput
+from med_assert.domain.collect.models import Article, CollectionOutput
 
 # --- Sample texts (length ≥ 12 chars for fuzzy blocking; PubMed-like tone) ---
 

@@ -30,7 +30,7 @@ build
 !pyproject.toml
 dupes.md
 insight_output_report.md
-article_miner_output
+med_assert_output
 
 # Tests (runtime image does not need them)
 tests

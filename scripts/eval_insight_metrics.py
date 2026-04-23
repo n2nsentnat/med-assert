@@ -43,7 +43,7 @@ def main() -> None:
             classification_report,
         )  # type: ignore[import-not-found]
 
-        # Expect nested insight.extraction.finding_direction.value when using article_miner export
+        # Expect nested insight.extraction.finding_direction.value when using med_assert export
         def fd(r: dict[str, object]) -> str:
             ins = r.get("insight") or {}
             if isinstance(ins, dict):

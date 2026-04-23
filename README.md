@@ -40,7 +40,7 @@ This command-line tool searches [PubMed](https://pubmed.ncbi.nlm.nih.gov/) via t
 Install dependencies:
 
 ```bash
-cd article_miner
+cd med_assert
 uv sync --all-groups
 ```
 
@@ -98,7 +98,7 @@ uv run pubmed-workflow \
 | `QUERY` (positional) | PubMed / Entrez query string (can be multiple words) |
 | `-n`, `--count` | Maximum articles to retrieve (default: 100) |
 | `-d`, `--dir` | Output directory (default: timestamped `workflow_...`) |
-| `--tool` | Tool name sent to NCBI (default: `article_miner`) |
+| `--tool` | Tool name sent to NCBI (default: `med_assert`) |
 | `--with-insights` | Enable insight classification after collect + dedup |
 | `--insight-llm` | **Required when `--with-insights` is used**. Provider shortcut (`openai`, `gemini`, `claude`, `anthropic`, `ollama`) |
 | `--insight-model` | Optional explicit model override for insights |
@@ -136,7 +136,7 @@ uv run collect-pubmed "machine learning" --count 100 --output results.json
 | `-o`, `--output` | Output JSON path (required) |
 | `--api-key` | NCBI API key; same as env `NCBI_API_KEY` |
 | `--email` | Contact email; same as env `NCBI_EMAIL` (recommended by NCBI) |
-| `--tool` | Tool name sent to NCBI (default: `article_miner`) |
+| `--tool` | Tool name sent to NCBI (default: `med_assert`) |
 
 ##### Collect output
 
@@ -158,10 +158,10 @@ uv run find-pubmed-dupes results.json -o dupes.json -m dupes.md
 | `input_json` (positional) | Collection JSON produced by `collect-pubmed` |
 | `-o`, `--out-json` | Output path for full dedup report JSON |
 | `-m`, `--markdown` | Output path for reviewer-friendly Markdown summary |
-| `--specter` | Add a **SPECTER 2** embedding + **FAISS** cosine-similarity layer after rule-based dedup (requires `uv sync --extra specter` or `pip install 'article-miner[specter]'`) |
+| `--specter` | Add a **SPECTER 2** embedding + **FAISS** cosine-similarity layer after rule-based dedup (requires `uv sync --extra specter` or `pip install 'med-assert[specter]'`) |
 | `--specter-model` | Hugging Face model id (default `allenai/specter2_base`) |
 
-Environment: set `ARTICLE_MINER_SPECTER=1` to enable the same layer by default in programmatic `build_duplicate_report()` calls.
+Environment: set `MED_ASSERT_SPECTER=1` to enable the same layer by default in programmatic `build_duplicate_report()` calls.
 
 ##### Dedup output
 
@@ -292,7 +292,7 @@ uv run classify-insights results.json -o insights.json --llm openai
 uv run classify-insights results.json -o insights.jsonl --llm openai
 ```
 
-**Prompt version** is `PROMPT_VERSION` in `article_miner.infrastructure.insights.prompts` (bump when instructions change to invalidate caches).
+**Prompt version** is `PROMPT_VERSION` in `med_assert.infrastructure.insights.prompts` (bump when instructions change to invalidate caches).
 
 **Offline evaluation**: see [`scripts/eval_insight_metrics.py`](scripts/eval_insight_metrics.py) (optional `pandas` / `scikit-learn` for metrics). For rigorous work, build a gold set (75–150 articles) and report accuracy / macro-F1 / **precision on auto-accept** rows.
 
@@ -308,7 +308,7 @@ Two records are considered linked when one of these rules matches:
 1. **Same normalized DOI** (highest confidence).
 2. **Same normalized title + same non-null publication year**.
 3. **High fuzzy title similarity** (with abstract similarity checks when both abstracts are present).
-4. **Optional:** **SPECTER 2** document embeddings (sentence-transformers) and **FAISS** neighbor search on cosine similarity—enabled with `--specter` or `ARTICLE_MINER_SPECTER=1`, and requiring the `[specter]` optional install.
+4. **Optional:** **SPECTER 2** document embeddings (sentence-transformers) and **FAISS** neighbor search on cosine similarity—enabled with `--specter` or `MED_ASSERT_SPECTER=1`, and requiring the `[specter]` optional install.
 
 Then links are merged transitively into clusters (connected components). This means a cluster may contain mixed link evidence (for example DOI + fuzzy links), so reviewer interpretation should use pairwise `edge_evidence`, not only the cluster label.
 
@@ -347,11 +347,11 @@ Layers follow **Clean / Onion** style dependency direction (inward-only):
 
 ### Tool-specific module layout
 
-- `article_miner/infrastructure/collect/`: PubMed collection adapters (HTTP client, gateway, XML parser, models, rate limiting).
-- `article_miner/application/dedup/`: duplicate detection workflow/service (rule-based + optional SPECTER 2 / FAISS).
-- `article_miner/infrastructure/dedup/`: embedding + FAISS helpers for the optional vector layer.
-- `article_miner/infrastructure/insights/`: **LangChain** chat models, prompts, extraction, deterministic validation, cache/prefilter; **LangGraph** placeholder graph for future multi-step orchestration.
-- `article_miner/common/`: shared cross-tool utilities (for example, project path helpers used by CLIs).
+- `med_assert/infrastructure/collect/`: PubMed collection adapters (HTTP client, gateway, XML parser, models, rate limiting).
+- `med_assert/application/dedup/`: duplicate detection workflow/service (rule-based + optional SPECTER 2 / FAISS).
+- `med_assert/infrastructure/dedup/`: embedding + FAISS helpers for the optional vector layer.
+- `med_assert/infrastructure/insights/`: **LangChain** chat models, prompts, extraction, deterministic validation, cache/prefilter; **LangGraph** placeholder graph for future multi-step orchestration.
+- `med_assert/common/`: shared cross-tool utilities (for example, project path helpers used by CLIs).
 
 <a id="live-ncbi-smoke-test-optional"></a>
 ### Live NCBI smoke test (optional)
@@ -359,10 +359,10 @@ Layers follow **Clean / Onion** style dependency direction (inward-only):
 Unit tests mock HTTP. To exercise the real E-utilities stack (same path as the CLI):
 
 ```bash
-ARTICLE_MINER_LIVE_NCBI=1 uv run pytest tests/test_live_pubmed_collect.py -v -m live_ncbi
+MED_ASSERT_LIVE_NCBI=1 uv run pytest tests/test_live_pubmed_collect.py -v -m live_ncbi
 ```
 
-Requires network access. The live module runs the same assertion against several broad queries (e.g. diabetes, hypertension, COVID-19, machine learning, publication type). Without `ARTICLE_MINER_LIVE_NCBI=1`, those tests are skipped so CI stays offline by default.
+Requires network access. The live module runs the same assertion against several broad queries (e.g. diabetes, hypertension, COVID-19, machine learning, publication type). Without `MED_ASSERT_LIVE_NCBI=1`, those tests are skipped so CI stays offline by default.
 
 <a id="license"></a>
 ## License

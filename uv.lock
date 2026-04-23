@@ -149,7 +149,7 @@ wheels = [
 ]
 
 [[package]]
-name = "article-miner"
+name = "med-assert"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

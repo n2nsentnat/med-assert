@@ -1,6 +1,6 @@
-# article-miner API — Python 3.13, non-root, uvicorn on 0.0.0.0:8000
-# Build: docker build -t article-miner:latest .
-# Run:  docker run --rm -p 8000:8000 --env-file .env article-miner:latest
+# med-assert API — Python 3.13, non-root, uvicorn on 0.0.0.0:8000
+# Build: docker build -t med-assert:latest .
+# Run:  docker run --rm -p 8000:8000 --env-file .env med-assert:latest
 
 FROM python:3.13-slim-bookworm
 
@@ -23,7 +23,7 @@ RUN pip install --upgrade pip \
     && pip install ".[specter]"
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
-    && mkdir -p /app/article_miner_output \
+    && mkdir -p /app/med_assert_output \
     && chown -R appuser:appuser /app
 
 USER appuser
@@ -33,4 +33,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
-CMD ["uvicorn", "article_miner.interfaces.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "med_assert.interfaces.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

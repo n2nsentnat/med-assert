@@ -5,8 +5,8 @@
 Build and run the HTTP API (FastAPI on port 8000):
 
 ```bash
-docker build -t article-miner:latest .
-docker run --rm -p 8000:8000 --env-file .env article-miner:latest
+docker build -t med-assert:latest .
+docker run --rm -p 8000:8000 --env-file .env med-assert:latest
 ```
 
 The image installs optional **`[specter]`** extras (SPECTER 2 + PyTorch) so API/CLI dedup can use `--specter` / `enable_specter_faiss` in containers.
@@ -20,7 +20,7 @@ cp .env.example .env   # edit keys
 docker compose up --build
 ```
 
-Open [http://localhost:8000/docs](http://localhost:8000/docs). File-mode API outputs go to the named volume under `/app/article_miner_output` inside the container.
+Open [http://localhost:8000/docs](http://localhost:8000/docs). File-mode API outputs go to the named volume under `/app/med_assert_output` inside the container.
 
 ## Kubernetes
 
@@ -35,7 +35,7 @@ Optional: create credentials for NCBI / LLM (keys become `env` inside the pod):
 ```bash
 kubectl apply -f deploy/kubernetes/secret.example.yaml   # edit values first
 # or
-kubectl create secret generic article-miner-env -n article-miner \
+kubectl create secret generic med-assert-env -n med-assert \
   --from-literal=NCBI_API_KEY=... \
   --from-literal=OPENAI_API_KEY=...
 ```
@@ -45,6 +45,6 @@ Optional Ingress: edit `deploy/kubernetes/ingress.yaml` (host, TLS), uncomment t
 Port forward for a quick test:
 
 ```bash
-kubectl port-forward -n article-miner svc/article-miner-api 8080:80
+kubectl port-forward -n med-assert svc/med-assert-api 8080:80
 curl http://127.0.0.1:8080/health
 ```

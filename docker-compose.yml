@@ -7,9 +7,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: article-miner:latest
+    image: med-assert:latest
     ports:
-      - "${ARTICLE_MINER_PORT:-8000}:8000"
+      - "${MED_ASSERT_PORT:-8000}:8000"
     # Uncomment if you use a local .env file:
     # env_file:
     #   - .env
@@ -22,7 +22,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       # Persist API file-mode outputs (output_format=file, default paths)
-      - article_miner_data:/app/article_miner_output
+      - med_assert_data:/app/med_assert_output
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
@@ -32,4 +32,4 @@ services:
       start_period: 15s
 
 volumes:
-  article_miner_data:
+  med_assert_data:

@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: article-miner
+namespace: med-assert
 
 resources:
   - namespace.yaml
@@ -12,6 +12,6 @@ resources:
 
 # Example: pin image without editing deployment.yaml
 # images:
-#   - name: article-miner
-#     newName: ghcr.io/your-org/article-miner
+#   - name: med-assert
+#     newName: ghcr.io/your-org/med-assert
 #     newTag: "0.1.0"
